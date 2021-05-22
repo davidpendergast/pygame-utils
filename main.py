@@ -1,0 +1,294 @@
+import numpy
+import pygame
+import pygame.gfxdraw
+import random
+
+USE_GL = True
+
+if USE_GL:
+    import OpenGL as OpenGL
+    import OpenGL.GL as GL
+    import OpenGL.GLU as GLU
+
+pygame.init()
+
+# Params
+N = 10              # Number of pendulums
+L = 20              # Length of pendulum arms
+M = 5               # Mass of pendulum arms
+G = 2 * 9.8         # Gravity
+FPS = 60
+ZOOM = 5
+
+ML2 = M * L * L
+
+
+def get_initial_conds():
+    theta1 = random.random() * 6.283
+    theta2 = random.random() * 6.283
+    spread = (6.283 / 360) / 4
+    return theta1, theta2, spread
+
+
+class State:
+
+    def __init__(self):
+        theta1, theta2, spread = get_initial_conds()
+        self.theta1 = numpy.linspace(theta1, theta1 + spread, N)
+        self.theta2 = numpy.linspace(theta2, theta2 + spread, N)
+        self.p1 = numpy.zeros(N)
+        self.p2 = numpy.zeros(N)
+
+        self.colors = [hsv_to_rgb(360 * i / N, 0.75, 1) for i in range(N)]
+        self.colors.reverse()
+
+        # arrays for temp storage (to avoid reallocating arrays constantly)
+        self.sub = numpy.zeros(N)
+        self.cos = numpy.zeros(N)
+        self.cos2 = numpy.zeros(N)
+        self.sin = numpy.zeros(N)
+        self.temp1 = numpy.zeros(N)
+        self.temp2 = numpy.zeros(N)
+        self.temp3 = numpy.zeros(N)
+        self.temp4 = numpy.zeros(N)
+        self.denom = numpy.zeros(N)
+        self.num = numpy.zeros(N)
+
+        self.dtheta1 = numpy.zeros(N)
+        self.dtheta2 = numpy.zeros(N)
+        self.dp1 = numpy.zeros(N)
+        self.dp2 = numpy.zeros(N)
+        self.x1 = numpy.zeros(N, dtype=numpy.int16)
+        self.y1 = numpy.zeros(N, dtype=numpy.int16)
+        self.x2 = numpy.zeros(N, dtype=numpy.int16)
+        self.y2 = numpy.zeros(N, dtype=numpy.int16)
+
+        if USE_GL:
+            self.vertex_data = numpy.zeros(N * 8, dtype=float)
+            self.index_data = numpy.arange(0, N * 8, dtype=numpy.int16)
+
+    def euler_update(self, dt):
+        numpy.subtract(self.theta1, self.theta2, out=self.sub)
+        numpy.cos(self.sub, out=self.cos)
+        numpy.square(self.cos, out=self.cos2)
+        numpy.sin(self.sub, out=self.sin)
+
+        self.calc_dtheta1(self.p1, self.p2, self.cos, self.cos2)
+        self.calc_dtheta2(self.p1, self.p2, self.cos, self.cos2)
+        self.calc_dp1(self.theta1, self.dtheta1, self.dtheta2, self.sin)
+        self.calc_dp2(self.theta2, self.dtheta1, self.dtheta2, self.sin)
+
+        self.theta1 = self.theta1 + dt * self.dtheta1
+        self.theta2 = self.theta2 + dt * self.dtheta2
+        self.p1 = self.p1 + dt * self.dp1
+        self.p2 = self.p2 + dt * self.dp2
+
+    def calc_dtheta1(self, p1, p2, cos, cos2):
+        # self.dtheta1 = (6 / ML2) * (2 * p1 - 3 * cos * p2) / (16 - 9 * cos2)
+        numpy.multiply(2, p1, out=self.temp1)
+        numpy.multiply(3, cos, out=self.temp2)
+        numpy.multiply(self.temp2, p2, out=self.temp2)
+        numpy.subtract(self.temp1, self.temp2, out=self.num)
+        numpy.multiply((6 / ML2), self.num, out=self.num)
+        numpy.multiply(9, cos2, out=self.temp3)
+        numpy.subtract(16, self.temp3, out=self.denom)
+        numpy.divide(self.num, self.denom, out=self.dtheta1)
+
+    def calc_dtheta2(self, p1, p2, cos, cos2):
+        # self.dtheta2 = (6 / ML2) * (8 * p2 - 3 * cos * p1) / (16 - 9 * cos2)
+        numpy.multiply(8, p2, out=self.temp1)
+        numpy.multiply(3, cos, out=self.temp2)
+        numpy.multiply(self.temp2, p1, out=self.temp2)
+        numpy.subtract(self.temp1, self.temp2, out=self.num)
+        numpy.multiply((6 / ML2), self.num, out=self.num)
+        numpy.multiply(9, cos2, out=self.temp3)
+        numpy.subtract(16, self.temp3, out=self.denom)
+        numpy.divide(self.num, self.denom, out=self.dtheta2)
+
+    def calc_dp1(self, theta1, dtheta1, dtheta2, sin):
+        # self.dp1 = (-ML2 / 2) * (dtheta1 * dtheta2 * sin + 3 * G / L * numpy.sin(theta1))
+        numpy.multiply(dtheta1, dtheta2, out=self.temp1)
+        numpy.multiply(self.temp1, sin, out=self.temp1)
+        numpy.sin(theta1, out=self.temp2)
+        numpy.multiply(3 * G / L, self.temp2, out=self.temp2)
+        numpy.add(self.temp1, self.temp2, out=self.temp3)
+        numpy.multiply(-ML2 / 2, self.temp3, out=self.dp1)
+
+    def calc_dp2(self, theta2, dtheta1, dtheta2, sin):
+        # self.dp2 = (-ML2 / 2) * (-dtheta1 * dtheta2 * sin + G / L * numpy.sin(theta2))
+        numpy.multiply(dtheta1, dtheta2, out=self.temp1)
+        numpy.multiply(self.temp1, sin, out=self.temp1)
+        numpy.sin(theta2, out=self.temp2)
+        numpy.multiply(G / L, self.temp2, out=self.temp2)
+        numpy.subtract(self.temp2, self.temp1, out=self.temp3)
+        numpy.multiply(-ML2 / 2, self.temp3, out=self.dp2)
+
+    def render_all(self, screen):
+        x0 = screen.get_width() // 2
+        y0 = screen.get_height() // 2
+
+        # self.x1 = x0 + ZOOM * L * numpy.cos(self.theta1 + 3.1429 / 2)
+        numpy.add(self.theta1, 3.1429 / 2, out=self.temp1)
+        numpy.cos(self.temp1, out=self.temp1)
+        numpy.multiply(ZOOM * L, self.temp1, out=self.temp1)
+        numpy.add(x0, self.temp1, out=self.x1, casting='unsafe')
+
+        # self.y1 = y0 + ZOOM * L * numpy.sin(self.theta1 + 3.1429 / 2)
+        numpy.add(self.theta1, 3.1429 / 2, out=self.temp2)
+        numpy.sin(self.temp2, out=self.temp2)
+        numpy.multiply(ZOOM * L, self.temp2, out=self.temp2)
+        numpy.add(y0, self.temp2, out=self.y1, casting='unsafe')
+
+        # self.x2 = self.x1 + ZOOM * L * numpy.cos(self.theta2 + 3.1429 / 2)
+        numpy.add(self.theta2, 3.1429 / 2, out=self.temp3)
+        numpy.cos(self.temp3, out=self.temp3)
+        numpy.multiply(ZOOM * L, self.temp3, out=self.temp3)
+        numpy.add(self.x1, self.temp3, out=self.x2, casting='unsafe')
+
+        # self.y2 = self.y1 + ZOOM * L * numpy.sin(self.theta2 + 3.1429 / 2)
+        numpy.add(self.theta2, 3.1429 / 2, out=self.temp4)
+        numpy.sin(self.temp4, out=self.temp4)
+        numpy.multiply(ZOOM * L, self.temp4, out=self.temp4)
+        numpy.add(self.y1, self.temp4, out=self.y2, casting='unsafe')
+
+        if USE_GL:
+            self.vertex_data[0::8] = x0  # TODO use indices instead
+            self.vertex_data[1::8] = y0
+            self.vertex_data[2::8] = self.x1
+            self.vertex_data[3::8] = self.y1
+
+            self.vertex_data[4::8] = self.x1
+            self.vertex_data[5::8] = self.y1
+            self.vertex_data[6::8] = self.x2
+            self.vertex_data[7::8] = self.y2
+
+            self.index_data = numpy.zeros(N * 8)
+            # numpy.random.shuffle(self.index_data)
+
+            GL.glClear(GL.GL_COLOR_BUFFER_BIT)
+            GL.glColor(1, 1, 0)
+
+            GL.glEnableClientState(GL.GL_INDEX_ARRAY)
+            GL.glEnableClientState(GL.GL_VERTEX_ARRAY)
+
+            GL.glIndexPointer(GL.GL_INT, 0, self.index_data)
+            GL.glVertexPointer(2, GL.GL_FLOAT, 0, self.vertex_data)
+            GL.glDrawArrays(GL.GL_LINES, 0, len(self.index_data) // 2);
+
+            GL.glDisableClientState(GL.GL_INDEX_ARRAY)
+            GL.glDisableClientState(GL.GL_VERTEX_ARRAY)
+
+        else:
+            screen.fill((0, 0, 0))
+            # (-_-) don't think there's a good way to avoid this loop without gl...
+            for i in range(0, N):
+                pygame.gfxdraw.line(screen, x0, y0, self.x1[i], self.y1[i], self.colors[i])
+                pygame.gfxdraw.line(screen, self.x1[i], self.y1[i], self.x2[i], self.y2[i], self.colors[i])
+
+
+import cProfile
+import pstats
+
+
+class Profiler:
+
+    def __init__(self):
+        self.is_running = False
+        self.pr = cProfile.Profile(builtins=False)
+
+    def toggle(self):
+        self.is_running = not self.is_running
+
+        if not self.is_running:
+            self.pr.disable()
+
+            ps = pstats.Stats(self.pr)
+            ps.strip_dirs()
+            ps.sort_stats('cumulative')
+            ps.print_stats(35)
+
+        else:
+            print("Started profiling...")
+            self.pr.clear()
+            self.pr.enable()
+
+
+def initialize_display():
+    if USE_GL:
+        display = (800, 600)
+        flags = pygame.DOUBLEBUF | pygame.OPENGL
+        screen = pygame.display.set_mode(display, flags)
+        GL.glClearColor(0, 0, 0, 1)
+        GL.glViewport(0, 0, display[0], display[1])
+        GL.glOrtho(0.0, display[0], display[1], 0.0, 0.0, 1.0);
+        # GLU.gluOrtho2D(-display[0] // 2, display[0] // 2, -display[1] // 2, display[1] // 2)
+
+        return screen
+    else:
+        return pygame.display.set_mode((800, 600), 0, 8)
+
+
+def start():
+    screen = initialize_display()
+    clock = pygame.time.Clock()
+
+    state = State()
+    profiler = Profiler()
+
+    running = True
+    ticks = 0
+    while running:
+        state.euler_update(1 / FPS)
+
+        state.render_all(screen)
+
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r:
+                    print("Reseting...")
+                    state = State()
+                elif event.key == pygame.K_p:
+                    profiler.toggle()
+
+        if ticks % 60 == 10:
+            pygame.display.set_caption("Double Pendulum (FPS={:.1f}, N={})".format(clock.get_fps(), N))
+
+        ticks += 1
+        clock.tick(FPS)
+
+
+def hsv_to_rgb(h, s, v):
+    """
+    :param h: 0 <= h < 360
+    :param s: 0 <= s <= 1
+    :param v: 0 <= v <= 1
+    :return: (r, g, b) as floats
+    """
+    C = v * s
+    X = C * (1 - abs((h / 60) % 2 - 1))
+    m = v - C
+
+    if h < 60:
+        rgb_prime = (C, X, 0)
+    elif h < 120:
+        rgb_prime = (X, C, 0)
+    elif h < 180:
+        rgb_prime = (0, C, X)
+    elif h < 240:
+        rgb_prime = (0, X, C)
+    elif h < 300:
+        rgb_prime = (X, 0, C)
+    else:
+        rgb_prime = (C, 0, X)
+
+    return (int(256 * rgb_prime[0] + m),
+            int(256 * rgb_prime[1] + m),
+            int(256 * rgb_prime[2] + m))
+
+
+if __name__ == "__main__":
+    start()
