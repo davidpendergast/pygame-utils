@@ -19,26 +19,26 @@ if USE_GL:
     import OpenGL.GLU as GLU
 
 # Params (can be set via the command line)
-N = 100000          # Number of pendulums
+N = 1000            # Number of pendulums
 L = 20              # Length of pendulum arms
 M = 5               # Mass of pendulum arms
 G = 2 * 9.8         # Gravity
 FPS = 60
 ZOOM = 5
+SPREAD = (6.283 / 360) / 4
 
 ML2 = M * L * L
 
 # OpenGL-Only Params
 COLOR_CHANNELS = 4  # must be 3 or 4
 RAINBOW = True
-OPACITY = 0.01
+OPACITY = 0.1
 
 
 def get_initial_conds():
     theta1 = 3.1415 * (random.random() + 0.5)
     theta2 = random.random() * 6.283
-    spread = (6.283 / 360) / 4
-    return theta1, theta2, spread
+    return theta1, theta2, SPREAD
 
 
 class State:
@@ -266,7 +266,7 @@ def start(size):
         pygame.display.flip()
 
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
+            if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                 running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_r:
@@ -313,13 +313,14 @@ def hsv_to_rgb(h, s, v):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='A double pendulum simulation made with pygame, PyOpenGL, and numpy.')
-    parser.add_argument('-n', type=int, metavar="int", default=1000, help=f'the number of pendulums (default {N})')
-    parser.add_argument('--opacity', type=float,  metavar="float", default=0.1, help=f'the opacity of the pendulums (default {OPACITY})')
+    parser.add_argument('-n', type=int, metavar="int", default=N, help=f'the number of pendulums (default {N})')
+    parser.add_argument('--opacity', type=float,  metavar="float", default=OPACITY, help=f'the opacity of the pendulums (default {OPACITY})')
     parser.add_argument('--length', type=int,  metavar="int", default=L, help=f'the length of the pendulum arms (default {L})')
     parser.add_argument('--mass', type=int, metavar="float", default=M, help=f'the mass of the pendulum arms (default {M})')
     parser.add_argument('--fps', type=int, metavar="int", default=FPS, help=f'the target FPS for the simulation (default {FPS})')
     parser.add_argument('--zoom', type=int, metavar="int", default=ZOOM, help=f'the target FPS for the simulation (default {ZOOM})')
-    parser.add_argument('--size', type=int, metavar="int", default=[800, 600], nargs=2, help='the window size for the simulation (default 600 800)')
+    parser.add_argument('--size', type=int, metavar="int", default=[800, 600], nargs=2, help='the window size for the simulation (default 800 600)')
+    parser.add_argument('--spread', type=float, metavar="float", default=SPREAD, help=f'the initial spread, in radians (default {SPREAD:.4f})')
 
     args = parser.parse_args()
 
@@ -329,5 +330,6 @@ if __name__ == "__main__":
     M = args.mass
     FPS = args.fps
     ZOOM = args.zoom
+    SPREAD = args.spread
 
     start(args.size)

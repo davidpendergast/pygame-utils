@@ -1,5 +1,5 @@
 # double-pendulum
-An efficient double pendulum simulation using pygame, numpy, and OpenGL
+An efficient double pendulum simulation using pygame, numpy, and OpenGL.
 
 Use `pip install -r requirements.txt` to install the dependencies.
 
