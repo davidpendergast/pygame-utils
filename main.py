@@ -76,7 +76,6 @@ class State:
 
         if USE_GL:
             self.vertex_data = numpy.zeros((N * 2 + 1) * 2, dtype=float)
-
             self.color_data = numpy.ones((N * 2 + 1) * COLOR_CHANNELS, dtype=float)
             if RAINBOW:
                 for i in range(0, N * 2):
@@ -263,9 +262,7 @@ def start(size):
     ticks = 0
     while running:
         state.euler_update(1 / FPS)
-
         state.render_all(screen)
-
         pygame.display.flip()
 
         for event in pygame.event.get():

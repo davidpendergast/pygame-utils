@@ -6,6 +6,9 @@ Use `pip install -r requirements.txt` to install the dependencies.
 Run using `python main.py`
 See optional program arguments using `python main.py -h`
 
+### Demo (N=1000)
+![n=1000animated.gif](screenshots/n=1000animated.gif?raw=true "n=1000 animated")
+
 ### N=1000
 ![n=1000.PNG](screenshots/n=1000.PNG?raw=true "n=1000")
 
