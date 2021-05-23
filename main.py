@@ -1,19 +1,25 @@
 import numpy
+import random
+import math
+import argparse
+
+import os
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
 import pygame.gfxdraw
-import random
 
-USE_GL = True
+# Double Pendulum with Pygame + pyOpenGL
+# by Ghast ~ https://github.com/davidpendergast
+
+USE_GL = True  # if False, will use pure pygame
 
 if USE_GL:
     import OpenGL as OpenGL
     import OpenGL.GL as GL
     import OpenGL.GLU as GLU
 
-pygame.init()
-
-# Params
-N = 10              # Number of pendulums
+# Params (can be set via the command line)
+N = 100000          # Number of pendulums
 L = 20              # Length of pendulum arms
 M = 5               # Mass of pendulum arms
 G = 2 * 9.8         # Gravity
@@ -22,9 +28,14 @@ ZOOM = 5
 
 ML2 = M * L * L
 
+# OpenGL-Only Params
+COLOR_CHANNELS = 4  # must be 3 or 4
+RAINBOW = True
+OPACITY = 0.01
+
 
 def get_initial_conds():
-    theta1 = random.random() * 6.283
+    theta1 = 3.1415 * (random.random() + 0.5)
     theta2 = random.random() * 6.283
     spread = (6.283 / 360) / 4
     return theta1, theta2, spread
@@ -64,8 +75,23 @@ class State:
         self.y2 = numpy.zeros(N, dtype=numpy.int16)
 
         if USE_GL:
-            self.vertex_data = numpy.zeros(N * 8, dtype=float)
-            self.index_data = numpy.arange(0, N * 8, dtype=numpy.int16)
+            self.vertex_data = numpy.zeros((N * 2 + 1) * 2, dtype=float)
+
+            self.color_data = numpy.ones((N * 2 + 1) * COLOR_CHANNELS, dtype=float)
+            if RAINBOW:
+                for i in range(0, N * 2):
+                    c = self.colors[i // 2]
+                    self.color_data[i * COLOR_CHANNELS + 0] = c[0] / 256
+                    self.color_data[i * COLOR_CHANNELS + 1] = c[1] / 256
+                    self.color_data[i * COLOR_CHANNELS + 2] = c[2] / 256
+            if COLOR_CHANNELS > 3:
+                self.color_data[3::COLOR_CHANNELS] = OPACITY
+
+            self.index_data = numpy.arange(0, N * 4, dtype=int)
+            self.index_data[0::4] = N * 2  # center point is stored as the Nth vertex
+            self.index_data[1::4] = numpy.arange(0, N * 2, 2, dtype=int)
+            self.index_data[2::4] = numpy.arange(0, N * 2, 2, dtype=int)
+            self.index_data[3::4] = numpy.arange(1, N * 2, 2, dtype=int)
 
     def euler_update(self, dt):
         numpy.subtract(self.theta1, self.theta2, out=self.sub)
@@ -152,31 +178,25 @@ class State:
         numpy.add(self.y1, self.temp4, out=self.y2, casting='unsafe')
 
         if USE_GL:
-            self.vertex_data[0::8] = x0  # TODO use indices instead
-            self.vertex_data[1::8] = y0
-            self.vertex_data[2::8] = self.x1
-            self.vertex_data[3::8] = self.y1
-
-            self.vertex_data[4::8] = self.x1
-            self.vertex_data[5::8] = self.y1
-            self.vertex_data[6::8] = self.x2
-            self.vertex_data[7::8] = self.y2
-
-            self.index_data = numpy.zeros(N * 8)
-            # numpy.random.shuffle(self.index_data)
+            self.vertex_data[0:N*4:4] = self.x1
+            self.vertex_data[1:N*4:4] = self.y1
+            self.vertex_data[2:N*4:4] = self.x2
+            self.vertex_data[3:N*4:4] = self.y2
+            self.vertex_data[N*4] = x0
+            self.vertex_data[N*4 + 1] = y0
 
             GL.glClear(GL.GL_COLOR_BUFFER_BIT)
             GL.glColor(1, 1, 0)
 
-            GL.glEnableClientState(GL.GL_INDEX_ARRAY)
             GL.glEnableClientState(GL.GL_VERTEX_ARRAY)
+            GL.glEnableClientState(GL.GL_COLOR_ARRAY)
 
-            GL.glIndexPointer(GL.GL_INT, 0, self.index_data)
             GL.glVertexPointer(2, GL.GL_FLOAT, 0, self.vertex_data)
-            GL.glDrawArrays(GL.GL_LINES, 0, len(self.index_data) // 2);
+            GL.glColorPointer(COLOR_CHANNELS, GL.GL_FLOAT, 0, self.color_data)
+            GL.glDrawElements(GL.GL_LINES, len(self.index_data), GL.GL_UNSIGNED_INT, self.index_data);
 
-            GL.glDisableClientState(GL.GL_INDEX_ARRAY)
             GL.glDisableClientState(GL.GL_VERTEX_ARRAY)
+            GL.glDisableClientState(GL.GL_COLOR_ARRAY)
 
         else:
             screen.fill((0, 0, 0))
@@ -213,23 +233,27 @@ class Profiler:
             self.pr.enable()
 
 
-def initialize_display():
+def initialize_display(size):
+    pygame.init()
+
     if USE_GL:
-        display = (800, 600)
+        display = size
         flags = pygame.DOUBLEBUF | pygame.OPENGL
         screen = pygame.display.set_mode(display, flags)
         GL.glClearColor(0, 0, 0, 1)
         GL.glViewport(0, 0, display[0], display[1])
         GL.glOrtho(0.0, display[0], display[1], 0.0, 0.0, 1.0);
-        # GLU.gluOrtho2D(-display[0] // 2, display[0] // 2, -display[1] // 2, display[1] // 2)
+        if COLOR_CHANNELS > 3:
+            GL.glEnable(GL.GL_BLEND)
+            GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA);
 
         return screen
     else:
-        return pygame.display.set_mode((800, 600), 0, 8)
+        return pygame.display.set_mode(size, 0, 8)
 
 
-def start():
-    screen = initialize_display()
+def start(size):
+    screen = initialize_display(size)
     clock = pygame.time.Clock()
 
     state = State()
@@ -291,4 +315,22 @@ def hsv_to_rgb(h, s, v):
 
 
 if __name__ == "__main__":
-    start()
+    parser = argparse.ArgumentParser(description='A double pendulum simulation made with pygame, PyOpenGL, and numpy.')
+    parser.add_argument('-n', type=int, metavar="int", default=1000, help=f'the number of pendulums (default {N})')
+    parser.add_argument('--opacity', type=float,  metavar="float", default=0.1, help=f'the opacity of the pendulums (default {OPACITY})')
+    parser.add_argument('--length', type=int,  metavar="int", default=L, help=f'the length of the pendulum arms (default {L})')
+    parser.add_argument('--mass', type=int, metavar="float", default=M, help=f'the mass of the pendulum arms (default {M})')
+    parser.add_argument('--fps', type=int, metavar="int", default=FPS, help=f'the target FPS for the simulation (default {FPS})')
+    parser.add_argument('--zoom', type=int, metavar="int", default=ZOOM, help=f'the target FPS for the simulation (default {ZOOM})')
+    parser.add_argument('--size', type=int, metavar="int", default=[800, 600], nargs=2, help='the window size for the simulation (default 600 800)')
+
+    args = parser.parse_args()
+
+    N = args.n
+    OPACITY = args.opacity
+    L = args.length
+    M = args.mass
+    FPS = args.fps
+    ZOOM = args.zoom
+
+    start(args.size)
