@@ -1,6 +1,9 @@
 # double-pendulum
 An efficient double pendulum simulation using pygame, numpy, and OpenGL.
 
+### Demo (N=1000)
+![n=1000animated.gif](screenshots/n=1000animated.gif?raw=true "n=1000 animated")
+
 ### Instructions
 Use the following to install dependencies and run the default program: <br>
 ```
@@ -22,9 +25,6 @@ While the simulation is running, the following actions can be used via keybindin
 * \[r\] to restart the simlution with a new starting angle <br>
 * \[Esc\] to quit the program <br>
 * \[p\] to enable / disable profiling <br>
-
-### Demo (N=1000)
-![n=1000animated.gif](screenshots/n=1000animated.gif?raw=true "n=1000 animated")
 
 ### N=1000
 ![n=1000.PNG](screenshots/n=1000.PNG?raw=true "n=1000")
