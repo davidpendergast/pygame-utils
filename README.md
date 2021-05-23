@@ -1,10 +1,27 @@
 # double-pendulum
 An efficient double pendulum simulation using pygame, numpy, and OpenGL.
 
-Use `pip install -r requirements.txt` to install the dependencies.
+### Instructions
+Use the following to install dependencies and run the default program: <br>
+```
+pip install -r requirements.txt
+python main.py
+``` 
 
-Run using `python main.py`
-See optional program arguments using `python main.py -h`
+To see the program's optional arguments, use:
+```
+python main.py -h
+```
+
+A command like this can be used to make a "realistic-looking" 3-pendulum simulation:
+```
+python main.py -n 3 --opacity 1.0 --size 400 400 --length 5 --zoom 20 --spread 1.3
+```
+
+While the simulation is running, the following actions can be used via keybindings: <br>
+* \[r\] to restart the simlution with a new starting angle <br>
+* \[Esc\] to quit the program <br>
+* \[p\] to enable / disable profiling <br>
 
 ### Demo (N=1000)
 ![n=1000animated.gif](screenshots/n=1000animated.gif?raw=true "n=1000 animated")
