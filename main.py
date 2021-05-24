@@ -185,7 +185,6 @@ class State:
             self.vertex_data[N*4 + 1] = y0
 
             GL.glClear(GL.GL_COLOR_BUFFER_BIT)
-            GL.glColor(1, 1, 0)
 
             GL.glEnableClientState(GL.GL_VERTEX_ARRAY)
             GL.glEnableClientState(GL.GL_COLOR_ARRAY)
@@ -259,9 +258,13 @@ def start(size):
     profiler = Profiler()
 
     running = True
-    ticks = 0
+    last_update_time = pygame.time.get_ticks()
+
     while running:
-        state.euler_update(1 / FPS)
+        current_time = pygame.time.get_ticks()
+        dt = (current_time - last_update_time) / 1000
+        state.euler_update(dt)
+
         state.render_all(screen)
         pygame.display.flip()
 
@@ -275,10 +278,10 @@ def start(size):
                 elif event.key == pygame.K_p:
                     profiler.toggle()
 
-        if ticks % 60 == 10:
+        if current_time // 1000 > last_update_time // 1000:
             pygame.display.set_caption("Double Pendulum (FPS={:.1f}, N={})".format(clock.get_fps(), N))
 
-        ticks += 1
+        last_update_time = current_time
         clock.tick(FPS)
 
 
