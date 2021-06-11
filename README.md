@@ -5,21 +5,21 @@ All of these are free to use & modify, with or without attribution. Every top-le
 pip install -r requirements.txt
 ```
 
-# life (life.py)
+# life ([life.py](life.py))
 An efficient game of life simulation using pygame and numpy.
 
 ![life_demo.gif](screenshots/life_demo.gif?raw=true "Life Demo")
 
 After installing dependencies, run with `python life.py` 
 
-# video (video.py)
+# video ([video.py](video.py))
 A video playback utility for pygame using numpy and cv2.
 
 ![video_demo.gif](screenshots/video_demo.gif?raw=true "Video Demo")
 
 See documentation in class for usage instructions.
 
-# double-pendulum (pendulum.py)
+# double-pendulum ([pendulum.py](pendulum.py))
 An efficient double pendulum simulation using pygame, numpy, and OpenGL.
 
 ### Demo (N=1000)
