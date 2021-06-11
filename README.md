@@ -1,23 +1,23 @@
 # A collection of pygame experiments and utilities.
 
-Most of these require additional libraires. Use this to install every dependency, or just install the ones you need based on the imports at the top of the file you want to use.
+All of these are free to use & modify, with or without attribution. Every top-level python file is a standalone project. Most of these require additional libraires. Use this to install every dependency, or just install the ones you need based on the imports at the top of the file you want to use.
 ```
 pip install -r requirements.txt
-``` 
-
-# video (video.py)
-A video playback utility for pygame using numpy and cv2.
-
-![video_demo.gif](screenshots/n=video_demo.gif?raw=true "Video Demo")
-
-See documentation in class for usage instructions.
+```
 
 # life (life.py)
 An efficient game of life simulation using pygame and numpy.
 
-![life_demo.gif](screenshots/n=life_demo.gif?raw=true "Life Demo")
+![life_demo.gif](screenshots/life_demo.gif?raw=true "Life Demo")
 
-Run with `python life.py` 
+After installing dependencies, run with `python life.py` 
+
+# video (video.py)
+A video playback utility for pygame using numpy and cv2.
+
+![video_demo.gif](screenshots/video_demo.gif?raw=true "Video Demo")
+
+See documentation in class for usage instructions.
 
 # double-pendulum (pendulum.py)
 An efficient double pendulum simulation using pygame, numpy, and OpenGL.
@@ -26,7 +26,7 @@ An efficient double pendulum simulation using pygame, numpy, and OpenGL.
 ![n=1000animated.gif](screenshots/n=1000animated.gif?raw=true "n=1000 animated")
 
 ### Instructions
-After installing the dependencies, use this to run the default program: <br>
+After installing dependencies, use this to run the default program: <br>
 ```
 python pendulum.py
 ``` 
