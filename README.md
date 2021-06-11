@@ -8,8 +8,14 @@ pip install -r requirements.txt
 # video (video.py)
 A video playback utility for pygame using numpy and cv2.
 
+![video_demo.gif](screenshots/n=video_demo.gif?raw=true "Video Demo")
+
+See documentation in class for usage instructions.
+
 # life (life.py)
 An efficient game of life simulation using pygame and numpy.
+
+![life_demo.gif](screenshots/n=life_demo.gif?raw=true "Life Demo")
 
 Run with `python life.py` 
 
