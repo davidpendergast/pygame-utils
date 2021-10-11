@@ -12,6 +12,13 @@ An efficient game of life simulation using pygame and numpy.
 
 After installing dependencies, run with `python life.py` 
 
+# colorswirl([colorswirl.py](colorswirl.py))
+A colorful celluar automata effect using pygame and numpy.
+
+![colorswirl.gif](screenshots/colorswirl.gif?raw=true "Colorswirl Demo")
+
+After installing dependencies, run with `python colorswirl.py` 
+
 # video ([video.py](video.py))
 A video playback utility for pygame using numpy and cv2.
 
