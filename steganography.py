@@ -1,103 +1,130 @@
 import math
-import random
+import typing
 
 import pygame
 import numpy
 
 
-def write_data_to_image(dest: pygame.Surface, ascii_data: str,
-                        bit_depth=2, allow_resize=True,
-                        append_noise=True) -> pygame.Surface:
-    if chr(0) in ascii_data:
-        raise ValueError("cannot store data containing NULL bytes.")
-    if bit_depth not in (1, 2, 4, 8):
-        raise ValueError(f"bit_depth must be 1, 2, 4, or 8, instead got: {bit_depth}")
-    total_bits = len(ascii_data) * 8  # total bits to store
+def write_text_to_surface(text_data: str, input_surface: pygame.Surface,
+                          bit_depth_range: typing.Union[typing.Tuple[int, int], int] = (1, 4),
+                          end_str: str = chr(0),
+                          allow_resize: bool = True) -> pygame.Surface:
+    """Writes ascii data into the pixel values of a surface (RGB only). This function returns a new copy of the image,
+        leaving the original unmodified. Lower-ordered bits of each color channel are consumed first, to preserve the
+        image as best as possible. A lower bit depth will give better image quality at the cost of worse data
+        compression, and vice-versa. Noise is added after the end of the data section so as to not create an obvious
+        boundary.
 
-    pixels_needed = math.ceil(total_bits / (3 * 8 * bit_depth)) + 1
-    if pixels_needed > dest.get_width() * dest.get_height():
+        :param text_data: The ascii data to write.
+        :param input_surface: The surface to write the data into.
+        :param bit_depth_range: The range of bits to use for data storage, per byte of image data. An optimal value
+            will be selected from this range based on the image's size and the amount of ascii data. Bounds must be
+            between 1 and 8. If a single int is provided, that bit depth will be used.
+        :param end_str: Indicator for where the data ends. This can be any string or character that doesn't appear
+            in the data string. By default, it's the NULL character (0x00000000).
+        :param allow_resize: Whether to increase the size of the image if the ascii data wouldn't fit otherwise.
+            This will always be an integer-valued upscale on both axis, with no interpolation.
+    """
+    if isinstance(bit_depth_range, int):
+        bit_depth_range = (bit_depth_range, bit_depth_range)
+    if not (1 <= bit_depth_range[0] <= bit_depth_range[1] <= 8):
+        raise ValueError(f"Illegal bit_depth_range: {bit_depth_range}")
+
+    if end_str in text_data:
+        raise ValueError(f"text_data cannot contain end_str (found at index: {text_data.index(end_str)})")
+    text_data += end_str
+
+    bytes_in_img = input_surface.get_width() * input_surface.get_height() * 3
+    if bytes_in_img == 0:
+        raise ValueError("Cannot write text to empty surface.")
+
+    # find an optimal bit depth within the specified bounds.
+    header_data_size = 3
+    optimal_bit_depth = math.ceil(len(text_data) * 8 / (bytes_in_img - header_data_size))
+    bit_depth = max(bit_depth_range[0], min(optimal_bit_depth, bit_depth_range[1]))
+
+    data_array = _str_to_flat_array(text_data, bits_per_index=bit_depth)
+    img_bytes_needed = header_data_size + data_array.size
+    img_bytes_in_input = input_surface.get_width() * input_surface.get_height() * 3
+
+    # resize the input surface (if necessary) so it's large enough to hold the data.
+    if img_bytes_in_input <= img_bytes_needed:
         if allow_resize:
-            mult = int(pixels_needed / (dest.get_width() * dest.get_height()))
-            surf = pygame.transform.scale(dest, (dest.get_width() * mult, dest.get_height() * mult))
+            mult = math.ceil(math.sqrt(img_bytes_needed / img_bytes_in_input))
+            output_surface = pygame.transform.scale(input_surface, (input_surface.get_width() * mult,
+                                                                    input_surface.get_height() * mult))
         else:
-            raise ValueError(f"dest doesn't have enough pixels ({dest.get_width() * dest.get_height()}) to fit "
-                             f"this data ({pixels_needed}). ")
+            raise ValueError(f"The surface is too small to contain {len(text_data)} bytes of text "
+                             f"with a bit_depth of {bit_depth}. Try allow_resize=True")
     else:
-        surf = dest.copy()
+        output_surface = input_surface.copy()
 
-    # write header data
-    r, g, b, *_ = surf.get_at((0, 0))
-    r = set_bit(r, 0, (bit_depth // 4) % 2)
-    g = set_bit(g, 0, (bit_depth // 2) % 2)
-    b = set_bit(b, 0, (bit_depth // 1) % 2)
-    surf.set_at((0, 0), (r, g, b))
+    img_bytes_in_output = output_surface.get_width() * output_surface.get_height() * 3
+    if img_bytes_needed < img_bytes_in_output:
+        end_idx = header_data_size + data_array.size
+        data_array = numpy.pad(data_array, (header_data_size, img_bytes_in_output - (data_array.size + header_data_size)),
+                               'constant', constant_values=(0, 0))
+        # fill the rest of the image with noise, to avoid creating a hard boundary.
+        data_array[end_idx:] = numpy.random.randint(2 ** bit_depth, size=data_array.size - end_idx)
 
-    for bit_idx_in_data in range((surf.get_width() * surf.get_height() - 1) * 3 * bit_depth):
-        if bit_idx_in_data < len(ascii_data) * 8:
-            # writing actual data
-            char_data = ord(ascii_data[bit_idx_in_data // 8])
-        elif len(ascii_data) * 8 <= bit_idx_in_data < (len(ascii_data) + 1) * 8:
-            char_data = 0  # indicates the end of the data stream
-        elif append_noise:
-            # add some random bits from the data stream
-            char_data = ord(random.choice(ascii_data))
-        else:
-            break
+    # write 1 bit of 'header data' into the first 3 bytes of the image, to indicate the bit depth of the data section.
+    first_px_rgb = list(output_surface.get_at((0, 0)))
+    first_px_rgb[0] = _set_bit(first_px_rgb[0], 0, (bit_depth // 1) % 2)
+    first_px_rgb[1] = _set_bit(first_px_rgb[1], 0, (bit_depth // 2) % 2)
+    first_px_rgb[2] = _set_bit(first_px_rgb[2], 0, (bit_depth // 4) % 2)
 
-        bit_val_to_write = get_bit(char_data, bit_idx_in_data % 8)
-        px_idx = 1 + bit_idx_in_data // (bit_depth * 3)
-        px_xy = (px_idx % surf.get_width(), px_idx // surf.get_width())
-        color_at_px = list(surf.get_at(px_xy))
+    colors = [
+        pygame.surfarray.pixels_red(output_surface),
+        pygame.surfarray.pixels_green(output_surface),
+        pygame.surfarray.pixels_blue(output_surface)
+    ]
 
-        color_channel_idx = (bit_idx_in_data // bit_depth) % 3
-        bit_idx_in_color = bit_idx_in_data % bit_depth
-        color_at_px[color_channel_idx] = set_bit(color_at_px[color_channel_idx], bit_idx_in_color, bit_val_to_write)
-        surf.set_at(px_xy, color_at_px)
+    # finally, write the actual data.
+    for c in range(3):
+        colors[c] &= 255 - ((1 << bit_depth) - 1)  # e.g. 0x11110000, where # of zeros = bit_depth
+        colors[c] |= data_array[c::3].reshape(colors[c].shape)
 
-    return surf
+    # write header data (first 3 bytes = RGB channels of the 1st pixel in the image).
+    output_surface.set_at((0, 0), first_px_rgb)
 
-
-def read_data_from_image(surf: pygame.Surface) -> str:
-    # read header data
-    r, g, b, *_ = surf.get_at((0, 0))
-    bit_depth = get_bit(r, 0) * 4 + get_bit(g, 0) * 2 + get_bit(b, 0)
-
-    data = []
-    cur_word = 0
-
-    for bit_idx_in_data in range((surf.get_width() * surf.get_height() - 1) * 3 * bit_depth):
-        px_idx = 1 + bit_idx_in_data // (bit_depth * 3)
-        px_xy = (px_idx % surf.get_width(), px_idx // surf.get_width())
-        color_at_px = list(surf.get_at(px_xy))
-
-        color_channel_idx = (bit_idx_in_data // bit_depth) % 3
-        bit_idx_in_color = bit_idx_in_data % bit_depth
-        bit_val = get_bit(color_at_px[color_channel_idx], bit_idx_in_color)
-        cur_word = set_bit(cur_word, bit_idx_in_data % 8, bit_val)
-        if bit_idx_in_data % 8 == 7:
-            if cur_word == 0:
-                break  # found the terminal character
-            else:
-                data.append(chr(cur_word))
-                cur_word = 0
-
-    return "".join(data)
+    return output_surface
 
 
-# yoinked from https://stackoverflow.com/questions/12173774/how-to-modify-bits-in-an-integer
-def set_bit(v, index, x) -> int:
-    """Set the index:th bit of v to 1 if x is truthy, else to 0, and return the new value."""
-    mask = 1 << index   # Compute mask, an integer with just bit 'index' set.
-    v &= ~mask          # Clear the bit indicated by the mask (if x is False)
-    if x:
-        v |= mask       # If x was True, set the bit indicated by the mask.
-    return v            # Return the result, we're done.
+def read_text_from_surface(surface: pygame.Surface, end_str=chr(0)) -> str:
+    """Extracts the ascii data that was written into a surface by write_text_to_surface(...).
+        :param surface: The surface.
+        :param end_str: Indicator for where the data ends. Must match the string that was used when writing the data.
+    """
+    # first, read the header data to find the bit_depth
+    first_px_rgb = surface.get_at((0, 0))
+    bit_depth = first_px_rgb[0] % 2 + (first_px_rgb[1] % 2) * 2 + (first_px_rgb[2] % 2) * 4
+    if not (1 <= bit_depth <= 8):
+        raise ValueError(f"Illegal bit_depth: {bit_depth}")
+    header_data_size = 3
+
+    colors = [
+        pygame.surfarray.pixels_red(surface),
+        pygame.surfarray.pixels_green(surface),
+        pygame.surfarray.pixels_blue(surface)
+    ]
+
+    raw_data = numpy.array([0] * (surface.get_width() * surface.get_height() * 3), dtype="uint8")
+    mask = (1 << (bit_depth)) - 1  # e.g. 0x00001111, where # of 1s = bit_depth
+    for c in range(3):
+        raw_data[c::3] = (colors[c] & mask).reshape(raw_data.size // 3)
+
+    return _flat_array_to_str(raw_data[header_data_size:], bits_per_index=bit_depth, end_str=end_str)
 
 
-def get_bit(v, index):
-    mask = 1 << index
-    v &= mask
-    return v >> index
+def save_text_as_image_file(text_data: str, input_surface: pygame.Surface, filepath: str,
+                            bit_depth_range=(1, 4), end_str=chr(0)):
+    to_save = write_text_to_surface(text_data, input_surface, bit_depth_range=bit_depth_range, end_str=end_str)
+    pygame.image.save(to_save, filepath)
+
+
+def load_text_from_image_file(filepath: str, end_str=chr(0)) -> str:
+    img = pygame.image.load(filepath)
+    return read_text_from_surface(img, end_str=end_str)
 
 
 def _str_to_flat_array(data: str, bits_per_index=2):
@@ -107,22 +134,23 @@ def _str_to_flat_array(data: str, bits_per_index=2):
     raw_bits:  [1 0 0 0 0 1 1 0 0 1 0 0 0 1 1 0 1 1 0 0 0 1 1 0]
     res:       [01 00 10 01 10 00 10 01 11 00 10 01]
     """
-    raw_bytes = numpy.array(bytearray(data, 'utf-8'), dtype='int8')
-    raw_bits = numpy.array([0] * 8 * raw_bytes.size, dtype='int8')
+    raw_bytes = numpy.array(bytearray(data, 'utf-8'), dtype='uint8')
+    raw_bits = numpy.array([0] * 8 * raw_bytes.size, dtype='uint8')
     for i in range(8):
         raw_bits[i:i + 8 * raw_bytes.size:8] = (raw_bytes & (1 << i)) >> i
     if raw_bits.size % bits_per_index > 0:
         # pad end with 0s if bits_per_index doesn't cleanly divide raw_bits
         raw_bits = numpy.pad(raw_bits, (0, bits_per_index - (raw_bits.size % bits_per_index)),
                              'constant', constant_values=0)
-    res = numpy.array([0] * math.ceil(raw_bits.size / bits_per_index), dtype='int8')
+    res = numpy.array([0] * math.ceil(raw_bits.size / bits_per_index), dtype='uint8')
     for j in range(bits_per_index):
         res |= raw_bits[j::bits_per_index] << j
     return res
 
 
-def _flat_array_to_str(arr, bits_per_index=2) -> str:
-    raw_bits = numpy.array([0] * (arr.size * bits_per_index), dtype='int8')
+def _flat_array_to_str(arr, bits_per_index=2, end_str=chr(0)) -> str:
+    """Reverse of _str_to_flat_array"""
+    raw_bits = numpy.array([0] * (arr.size * bits_per_index), dtype='uint8')
     for j in range(bits_per_index):
         raw_bits[j::bits_per_index] = (arr & (1 << j)) >> j
 
@@ -130,16 +158,31 @@ def _flat_array_to_str(arr, bits_per_index=2) -> str:
     if overflow > 0:
         raw_bits = numpy.resize(raw_bits, (raw_bits.size - overflow,))
 
-    raw_bytes = numpy.array([0] * (raw_bits.size // 8), dtype='int8')
+    raw_bytes = numpy.array([0] * (raw_bits.size // 8), dtype='uint8')
     for i in range(8):
         raw_bytes |= raw_bits[i::8] << i
-    return raw_bytes.tobytes().decode("utf-8")
+
+    as_bytes = raw_bytes.tobytes()
+    if end_str.encode("utf-8") in as_bytes:
+        return as_bytes[0:as_bytes.index(end_str.encode("utf-8"))].decode("utf-8")
+    else:
+        return as_bytes.decode("utf-8")
 
 
-if "x" == "y":
+# yoinked from https://stackoverflow.com/questions/12173774/how-to-modify-bits-in-an-integer
+def _set_bit(v, index, x) -> int:
+    """Set the index:th bit of v to 1 if x is truthy, else to 0, and return the new value."""
+    mask = 1 << index   # Compute mask, an integer with just bit 'index' set.
+    v &= ~mask          # Clear the bit indicated by the mask (if x is False)
+    if x:
+        v |= mask       # If x was True, set the bit indicated by the mask.
+    return v            # Return the result, we're done.
+
+
+if __name__ == "__main__":
     input_filename = "data/splash.png"
     output_filename = "data/splash_output.png"
-    bit_depth = 4
+    _end_str = "~END~"
     img = pygame.image.load(input_filename)
 
     import json
@@ -147,31 +190,16 @@ if "x" == "y":
         input_data_as_json = json.load(f)
 
     input_data = json.dumps(input_data_as_json, ensure_ascii=True)
+    input_data = input_data * 10
 
-    new_surf = write_data_to_image(img, input_data, bit_depth=bit_depth)
+    new_surf = write_text_to_surface(input_data, img, bit_depth_range=(1, 5), end_str=_end_str)
     pygame.image.save(new_surf, output_filename)
 
-    output_data = read_data_from_image(new_surf)
-    output_data_from_img = read_data_from_image(pygame.image.load(output_filename))
+    output_data_nosave = read_text_from_surface(new_surf, end_str=_end_str)
+    output_data_from_img = load_text_from_image_file(output_filename, end_str=_end_str)
 
-    print("input_data: ", input_data)
-    print("output_data:", output_data)
-    print(f"input_data == output_data = {input_data == output_data}")
-    print(f"input_data == output_data_from_img = {input_data == output_data}")
-
-if __name__ == "__main__":
-    surf = pygame.Surface((8, 1))
-    surf.fill((0, 0, 0))
-    x1 = "abc"
-    bit_depth = 5
-    arr = _str_to_flat_array(x1, bits_per_index=bit_depth)
-    x2 = _flat_array_to_str(arr, bits_per_index=bit_depth)
-
-    print(f"x1 = {x1}")
-    print(f"x2 = {x2}")
-
-    import subprocess
-    subprocess.Popen(["C:\\WINDOWS\\system32\\mspaint.exe"])
-
-    print("done.")
-
+    print("input_data:", input_data)
+    print("output_data_nosave:", output_data_nosave)
+    print("output_data_from_img:", output_data_from_img)
+    print(f"input_data == output_data_nosave = {input_data == output_data_nosave}")
+    print(f"input_data == output_data_from_img = {input_data == output_data_from_img}")
