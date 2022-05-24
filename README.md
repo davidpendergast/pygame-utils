@@ -19,6 +19,22 @@ A colorful celluar automata effect using pygame and numpy.
 
 After installing dependencies, run with `python colorswirl.py` 
 
+# fractal ([fractal.py](fractal.py))
+An implementation of the mandlebrot set, which lets you zoom in and out.
+
+![fractal_zoom.gif](screenshots/fractal_zoom.gif?raw=true "Fractal Demo")
+
+After installing dependencies, run with `python fractal.py` 
+
+# rainbowize ([rainbowize.py](rainbowize.py))
+A function that applies a "rainbow effect" to a single pygame Surface.
+
+![rainbowize.gif](screenshots/rainbowize.gif?raw=true "Rainbowize Demo")
+
+After installing dependencies, run with `python rainbowize.py` to see a demo. 
+
+Or import it into your own project and call `rainbowize.apply(my_surface, i)`.
+
 # video ([video.py](video.py))
 A video playback utility for pygame using numpy and cv2.
 
