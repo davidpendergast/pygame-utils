@@ -133,7 +133,7 @@ def hues_to_rgb(h, out):
 
 
 async def main():
-    global loop
+    global W, H, FPS, TOTAL_ITERATIONS_PER_FRAME, MAX_ITERS_PER_CELL_PER_FRAME, SHOW_BOX, SIMPLE_COLORING, FLAGS, ABS_LIMIT
     pygame.init()
     screen = pygame.display.set_mode((W, H), flags=FLAGS)
     state = State()
