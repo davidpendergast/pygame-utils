@@ -9,7 +9,25 @@ def apply_lut(source: pygame.Surface, lut: pygame.Surface, idx: int) -> pygame.S
       subsequent columns should contain different mappings for those colors.
     idx: Which column of the lookup table to use. If 0, colors will not be changed (since that's the "key column").
     """
-    return _basic_pygame_lut(source, lut, idx)
+    # return _basic_pygame_lut(source, lut, idx)
+    return _numpy_lut_iterative(source, lut, idx)
+
+
+def _numpy_lut_iterative(source: pygame.Surface, lut: pygame.Surface, idx: int):
+    if (source.get_flags() & pygame.SRCALPHA) != (lut.get_flags() & pygame.SRCALPHA):
+        msg = ("source", "lut") if (source.get_flags() & pygame.SRCALPHA) else ("lut", "source")
+        raise ValueError(f"Source and LUT images must have matching pixel formats ({msg[0]} has per-pixel alpha "
+                         f"and {msg[1]} doesn't).")
+    res = source.copy()
+    res_array = pygame.surfarray.pixels2d(res)
+    orig_array = pygame.surfarray.pixels2d(source)
+    lut_array = pygame.surfarray.pixels2d(lut)
+
+    # one array operation per mapping in the LUT... can we do better?
+    for y in range(lut.get_height()):
+        res_array[orig_array == lut_array[0, y]] = lut_array[idx, y]
+
+    return res
 
 
 def _basic_pygame_lut(source: pygame.Surface, lut: pygame.Surface, idx: int):
@@ -37,10 +55,10 @@ if __name__ == "__main__":
     screen = pygame.display.set_mode((640, 480), flags=pygame.RESIZABLE)
     clock = pygame.time.Clock()
 
-    BASE_IMG = pygame.image.load("data/frog_src.png").convert_alpha()
-    LUT_IMG = pygame.image.load("data/frog_lut.png")
-    RESULT_IMG = None
+    BASE_IMG = pygame.image.load("data/frog_src.png").convert()
+    BASE_IMG.set_colorkey(BASE_IMG.get_at((0, 0)))
 
+    LUT_IMG = pygame.image.load("data/frog_lut.png").convert()
     LUT_IDX = 1
     NUM_LUTS = LUT_IMG.get_width()
 
@@ -96,4 +114,3 @@ if __name__ == "__main__":
 
         last_update_time = current_time
         clock.tick(FPS)
-        
