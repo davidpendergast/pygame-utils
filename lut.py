@@ -1,37 +1,72 @@
 import pygame
-import numpy
+
+try:
+    import numpy  # required for pygame.surfarray stuff
+    _has_numpy = True
+except ImportError:
+    _has_numpy = False
 
 
-def apply_lut(source: pygame.Surface, lut: pygame.Surface, idx: int) -> pygame.Surface:
-    """Generates a new copy of an image with a color lookup table applied.
+_CACHE = {}
+
+
+def apply_lut(source: pygame.Surface, lut: pygame.Surface, idx: int, cache=True) -> pygame.Surface:
+    """Generates a new copy of a surface with a color lookup table applied.
     source: Base image.
     lut: The "lookup table" surface. The first column of pixels should match the colors in the base image, and
-      subsequent columns should contain different mappings for those colors.
+      subsequent columns should contain different re-mappings for those colors.
     idx: Which column of the lookup table to use. If 0, colors will not be changed (since that's the "key column").
+    cache: Whether to cache the result for quick lookup later. Note that this assumes the pixel values in the source
+      and lut surfaces won't change between calls.
     """
-    # return _basic_pygame_lut(source, lut, idx)
-    return _numpy_lut_iterative(source, lut, idx)
+    # this keying system assumes the source and lut's pixel values are static
+    cache_key = (id(source), id(lut), idx) if cache else None
+
+    if cache_key in _CACHE:
+        return _CACHE[cache_key]
+    else:
+        if _has_numpy:
+            res = _numpy_lut_iterative(source, lut, idx)
+        else:
+            res = _basic_pygame_lut(source, lut, idx)
+
+        if cache_key is not None:
+            _CACHE[cache_key] = res
+        return res
 
 
 def _numpy_lut_iterative(source: pygame.Surface, lut: pygame.Surface, idx: int):
-    if (source.get_flags() & pygame.SRCALPHA) != (lut.get_flags() & pygame.SRCALPHA):
-        msg = ("source", "lut") if (source.get_flags() & pygame.SRCALPHA) else ("lut", "source")
-        raise ValueError(f"Source and LUT images must have matching pixel formats ({msg[0]} has per-pixel alpha "
-                         f"and {msg[1]} doesn't).")
+    # translucency isn't supported in lut
+    if lut.get_flags() & pygame.SRCALPHA:
+        lut = lut.convert()
+
+    if source.get_flags() & pygame.SRCALPHA:
+        # preserve source's alpha channel if it has one
+        orig_alpha_array = pygame.surfarray.pixels_alpha(source)
+        source = source.convert()
+    else:
+        orig_alpha_array = None
+
     res = source.copy()
     res_array = pygame.surfarray.pixels2d(res)
-    orig_array = pygame.surfarray.pixels2d(source)
+
+    source_array = pygame.surfarray.pixels2d(source)
     lut_array = pygame.surfarray.pixels2d(lut)
 
-    # one array operation per mapping in the LUT... can we do better?
+    # do the actual color swapping
     for y in range(lut.get_height()):
-        res_array[orig_array == lut_array[0, y]] = lut_array[idx, y]
+        res_array[source_array == lut_array[0, y]] = lut_array[idx, y]
+
+    # restore alpha channel, if necessary
+    if orig_alpha_array is not None:
+        res = res.convert_alpha()
+        res_alpha = pygame.surfarray.pixels_alpha(res)
+        res_alpha[:] = orig_alpha_array
 
     return res
 
 
 def _basic_pygame_lut(source: pygame.Surface, lut: pygame.Surface, idx: int):
-    """Works, but slow"""
     res = source.copy()
 
     table = {}
@@ -55,12 +90,21 @@ if __name__ == "__main__":
     screen = pygame.display.set_mode((640, 480), flags=pygame.RESIZABLE)
     clock = pygame.time.Clock()
 
-    BASE_IMG = pygame.image.load("data/frog_src.png").convert()
-    BASE_IMG.set_colorkey(BASE_IMG.get_at((0, 0)))
-
-    LUT_IMG = pygame.image.load("data/frog_lut.png").convert()
+    BASE_IMG: pygame.Surface = None
+    LUT_IMG: pygame.Surface = None
     LUT_IDX = 1
-    NUM_LUTS = LUT_IMG.get_width()
+    NUM_LUTS = 2
+
+    def load_sample_images():
+        global BASE_IMG, LUT_IMG, LUT_IDX, NUM_LUTS
+        BASE_IMG = pygame.image.load("data/frog_src.png").convert()
+        BASE_IMG.set_colorkey(BASE_IMG.get_at((0, 0)))
+
+        LUT_IMG = pygame.image.load("data/frog_lut.png").convert()
+        NUM_LUTS = LUT_IMG.get_width()
+        LUT_IDX = min(LUT_IDX, NUM_LUTS - 1)
+
+    load_sample_images()
 
     running = True
     last_update_time = pygame.time.get_ticks()
@@ -86,6 +130,9 @@ if __name__ == "__main__":
                     LUT_IDX += 1
                 elif e.key == pygame.K_LEFT:
                     LUT_IDX -= 1
+                elif e.key == pygame.K_r:
+                    print("INFO: reloading images...")
+                    load_sample_images()
 
         LUT_IDX %= NUM_LUTS
         RESULT_IMG = apply_lut(BASE_IMG, LUT_IMG, LUT_IDX)
