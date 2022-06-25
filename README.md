@@ -27,13 +27,24 @@ An implementation of the mandlebrot set, which lets you zoom in and out.
 After installing dependencies, run with `python fractal.py` 
 
 # rainbowize ([rainbowize.py](rainbowize.py))
-A function that applies a "rainbow effect" to a single pygame Surface.
+A function that applies a "rainbow effect" to a single surface.
 
 ![rainbowize.gif](screenshots/rainbowize.gif?raw=true "Rainbowize Demo")
 
 After installing dependencies, run with `python rainbowize.py` to see a demo. 
 
 Or import it into your own project and call `rainbowize.apply(my_surface, i)`.
+
+# lut ([lut.py](lut.py))
+A function that transforms the colors of a surface using a lookup table (aka a "LUT").
+
+![lut.gif](screenshots/lut.gif?raw=true "LUT Demo")
+
+After installing dependencies, run with `python lut.py` to see a demo.
+
+Or import it into your own project and call `lut.apply_lut(source_surface, lut_surface, idx)`.
+
+If `numpy` isn't available, the function will fall back to a pure pygame routine (which is slower but produces the same result). The function also has an optional built-in caching system, and handles per-pixel alpha in a reasonable way.
 
 # video ([video.py](video.py))
 A video playback utility for pygame using numpy and cv2.
