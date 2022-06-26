@@ -53,6 +53,27 @@ A video playback utility for pygame using numpy and cv2.
 
 See documentation in class for usage instructions.
 
+# steganography ([steganography.py](steganography.py))
+A module that writes text data into the pixel values of images.
+
+![stega_demo.png](screenshots/stega_demo.png?raw=true "Steganography Demo")
+
+After installing dependencies, import the module into your project and call its methods. See docstrings for detailed usage instructions and information about advanced settings (e.g. bit depth, image resizing).
+
+### Example of writing a message into a surface.
+```
+output_surface = steganography.write_text_to_surface("secret message", my_surface)
+message = steganography.read_text_from_surface(output_surface)
+print(message)  # prints "secret message"
+```
+
+### Example of saving a message to a PNG.
+```
+steganography.save_text_as_image_file("secret message", my_surface, "path/to/file.png")
+message = steganography.load_text_from_image_file("path/to/file.png")
+print(message)  # prints "secret message"
+```
+
 # double-pendulum ([pendulum.py](pendulum.py))
 An efficient double pendulum simulation using pygame, numpy, and OpenGL.
 
