@@ -8,7 +8,7 @@ import numpy
 def write_text_to_surface(text_data: str, input_surface: pygame.Surface,
                           bit_depth_range: typing.Union[typing.Tuple[int, int], int] = (1, 4),
                           end_str: str = chr(0),
-                          allow_resize: bool = True) -> pygame.Surface:
+                          resize_mode: str = 'smooth') -> pygame.Surface:
     """Writes ascii data into the pixel values of a surface (RGB only).
 
         This function returns a new copy of the image, leaving the original unmodified. Lower-ordered bits of each color
@@ -16,15 +16,24 @@ def write_text_to_surface(text_data: str, input_surface: pygame.Surface,
         quality at the cost of worse data compression, and vice-versa. Noise is added after the end of the data section
         to avoid creating an obvious boundary.
 
-        :param text_data: The ascii data to write.
-        :param input_surface: The surface to write the data into.
-        :param bit_depth_range: The range of bits to use for data storage, per byte of image data. An optimal value
-            will be selected from this range based on the image's size and the amount of ascii data. Bounds must be
-            between 1 and 8. If a single int is provided, that bit depth will be used.
-        :param end_str: Indicator for where the data ends. This can be any string or character that doesn't appear
-            in the data string. By default, it's the NULL character (0x00000000).
-        :param allow_resize: Whether to increase the size of the image if the ascii data wouldn't fit otherwise.
-            This will always be an integer-valued upscale on both axes, with no interpolation.
+        Args:
+            text_data: The ascii data to write.
+            input_surface: The surface to write the data into.
+            bit_depth_range: The range of bits to use for data storage, per byte of image data. An optimal value
+              will be selected from this range based on the image's size and the amount of ascii data. Bounds must be
+              between 1 and 8. If a single int is provided, that bit depth will be used.
+            end_str: Indicator for where the data ends. This can be any string or character that doesn't appear
+              in the data string. By default, it's the NULL character (0x00000000).
+            resize_mode: This parameter controls how the function behaves when the image isn't large enough
+              to fit the data. Accepted values: None, "smooth", or "integer". If None, the image will not be resized,
+              and the function will throw an error if the data doesn't fit. If "smooth", the image will be scaled up
+              smoothly in each axis. If "integer", the image will be scaled up by an integer multiplier in each axis.
+
+        Returns:
+            A copy of the input surface with the text data encoded into its pixel values.
+
+        Raises:
+            ValueError: If any parameters are invalid, or resize_mode is None and the data is too large to be stored.
     """
     if isinstance(bit_depth_range, int):
         bit_depth_range = (bit_depth_range, bit_depth_range)
@@ -50,13 +59,18 @@ def write_text_to_surface(text_data: str, input_surface: pygame.Surface,
 
     # resize the input surface (if necessary) so it's large enough to hold the data.
     if img_bytes_in_input <= img_bytes_needed:
-        if allow_resize:
+        if resize_mode == 'integer':
             mult = math.ceil(math.sqrt(img_bytes_needed / img_bytes_in_input))
-            output_surface = pygame.transform.scale(input_surface, (input_surface.get_width() * mult,
-                                                                    input_surface.get_height() * mult))
+            new_dims = (input_surface.get_width() * mult,
+                        input_surface.get_height() * mult)
+        elif resize_mode == 'smooth':
+            mult = math.sqrt(img_bytes_needed / img_bytes_in_input)
+            new_dims = (math.ceil(input_surface.get_width() * mult),
+                        math.ceil(input_surface.get_height() * mult))
         else:
             raise ValueError(f"The surface is too small to contain {len(text_data)} bytes of text "
-                             f"with a bit_depth of {bit_depth}. Try allow_resize=True")
+                             f"with a bit_depth of {bit_depth}.")
+        output_surface = pygame.transform.scale(input_surface, new_dims)
     else:
         output_surface = input_surface.copy()
 
@@ -65,7 +79,7 @@ def write_text_to_surface(text_data: str, input_surface: pygame.Surface,
         end_idx = header_data_size + data_array.size
         data_array = numpy.pad(data_array, (header_data_size, img_bytes_in_output - (data_array.size + header_data_size)),
                                'constant', constant_values=(0, 0))
-        # fill the rest of the image with noise, to avoid creating a hard boundary.
+        # fill the rest of the image with noise, to avoid creating a visible boundary.
         data_array[end_idx:] = numpy.random.randint(2 ** bit_depth, size=data_array.size - end_idx)
 
     # write 1 bit of 'header data' into the first 3 bytes of the image, to indicate the bit depth of the data section.
@@ -93,8 +107,8 @@ def write_text_to_surface(text_data: str, input_surface: pygame.Surface,
 
 def read_text_from_surface(surface: pygame.Surface, end_str=chr(0)) -> str:
     """Extracts the ascii data that was written into a surface by write_text_to_surface(...).
-        :param surface: The surface.
-        :param end_str: Indicator for where the data ends. Must match the string that was used when writing the data.
+        surface: The surface.
+        end_str: Indicator for where the data ends. Must match the string that was used when writing the data.
     """
     # first, read the header data to find the bit_depth
     first_px_rgb = surface.get_at((0, 0))
@@ -110,7 +124,7 @@ def read_text_from_surface(surface: pygame.Surface, end_str=chr(0)) -> str:
     ]
 
     raw_data = numpy.array([0] * (surface.get_width() * surface.get_height() * 3), dtype="uint8")
-    mask = (1 << (bit_depth)) - 1  # e.g. 0x00001111, where # of 1s = bit_depth
+    mask = (1 << bit_depth) - 1  # e.g. 0x00001111, where # of 1s = bit_depth
     for c in range(3):
         raw_data[c::3] = (colors[c] & mask).reshape(raw_data.size // 3)
 
@@ -118,8 +132,11 @@ def read_text_from_surface(surface: pygame.Surface, end_str=chr(0)) -> str:
 
 
 def save_text_as_image_file(text_data: str, input_surface: pygame.Surface, filepath: str,
-                            bit_depth_range=(1, 4), end_str=chr(0)):
-    to_save = write_text_to_surface(text_data, input_surface, bit_depth_range=bit_depth_range, end_str=end_str)
+                            bit_depth_range=(1, 4), end_str=chr(0), resize_mode='smooth'):
+    to_save = write_text_to_surface(text_data, input_surface,
+                                    bit_depth_range=bit_depth_range,
+                                    end_str=end_str,
+                                    resize_mode=resize_mode)
     pygame.image.save(to_save, filepath)
 
 
