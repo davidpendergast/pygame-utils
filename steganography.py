@@ -9,11 +9,12 @@ def write_text_to_surface(text_data: str, input_surface: pygame.Surface,
                           bit_depth_range: typing.Union[typing.Tuple[int, int], int] = (1, 4),
                           end_str: str = chr(0),
                           allow_resize: bool = True) -> pygame.Surface:
-    """Writes ascii data into the pixel values of a surface (RGB only). This function returns a new copy of the image,
-        leaving the original unmodified. Lower-ordered bits of each color channel are consumed first, to preserve the
-        image as best as possible. A lower bit depth will give better image quality at the cost of worse data
-        compression, and vice-versa. Noise is added after the end of the data section so as to not create an obvious
-        boundary.
+    """Writes ascii data into the pixel values of a surface (RGB only).
+
+        This function returns a new copy of the image, leaving the original unmodified. Lower-ordered bits of each color
+        channel are consumed first, to preserve the image as best as possible. A lower bit depth will give better image
+        quality at the cost of worse data compression, and vice-versa. Noise is added after the end of the data section
+        to avoid creating an obvious boundary.
 
         :param text_data: The ascii data to write.
         :param input_surface: The surface to write the data into.
@@ -23,7 +24,7 @@ def write_text_to_surface(text_data: str, input_surface: pygame.Surface,
         :param end_str: Indicator for where the data ends. This can be any string or character that doesn't appear
             in the data string. By default, it's the NULL character (0x00000000).
         :param allow_resize: Whether to increase the size of the image if the ascii data wouldn't fit otherwise.
-            This will always be an integer-valued upscale on both axis, with no interpolation.
+            This will always be an integer-valued upscale on both axes, with no interpolation.
     """
     if isinstance(bit_depth_range, int):
         bit_depth_range = (bit_depth_range, bit_depth_range)
