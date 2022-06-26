@@ -210,7 +210,7 @@ if __name__ == "__main__":
     input_data = json.dumps(input_data_as_json, ensure_ascii=True)
     input_data = input_data * 10
 
-    new_surf = write_text_to_surface(input_data, img, bit_depth_range=(1, 5), end_str=_end_str)
+    new_surf = write_text_to_surface(input_data, img, bit_depth_range=(1, 5), end_str=_end_str, resize_mode='integer')
     pygame.image.save(new_surf, output_filename)
 
     output_data_nosave = read_text_from_surface(new_surf, end_str=_end_str)
