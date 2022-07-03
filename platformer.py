@@ -5,6 +5,14 @@ import typing
 import random
 import heapq
 
+# TODO [ ] camera that tracks player smoothly
+# TODO [ ] items that can be picked up
+# TODO [ ] bullets from player
+# TODO [ ] menus...?
+# TODO [ ] enemies
+# TODO [ ] death
+# TODO [ ] finishing level -> generating next one
+
 
 class Utils:
 
@@ -18,105 +26,154 @@ class Utils:
             return val
 
 
+class Inputs:
+    """A singleton class that keeps track of player inputs.
+        The idea is that the game loop keeps these sets up to date as it processes
+        the event queue, and then any places in the codebase that care about inputs
+        can query them here.
+    """
+    KEYS_PRESSED_THIS_FRAME = set()
+    KEYS_RELEASED_THIS_FRAME = set()
+    KEYS_HELD = set()
+
+    @staticmethod
+    def prepare_for_next_frame():
+        """This should only be called from the game loop."""
+        Inputs.KEYS_RELEASED_THIS_FRAME.clear()
+        Inputs.KEYS_PRESSED_THIS_FRAME.clear()
+
+    @staticmethod
+    def handle_key_down(key_id):
+        """This should only be called from the game loop."""
+        Inputs.KEYS_PRESSED_THIS_FRAME.add(key_id)
+        Inputs.KEYS_HELD.add(key_id)
+
+    @staticmethod
+    def handle_key_up(key_id):
+        """This should only be called from the game loop."""
+        Inputs.KEYS_RELEASED_THIS_FRAME.add(key_id)
+        if key_id in Inputs.KEYS_HELD:
+            Inputs.KEYS_HELD.remove(key_id)
+
+    @staticmethod
+    def is_held(key_ids: typing.Union[int, typing.Iterable[int]]):
+        """Queries whether a key or any single key from a collection of keys is currently held down."""
+        if isinstance(key_ids, int):
+            return key_ids in Inputs.KEYS_HELD
+        else:
+            return any(k in Inputs.KEYS_HELD for k in key_ids)
+
+    @staticmethod
+    def was_pressed_this_frame(key_ids: typing.Union[int, typing.Iterable[int]]):
+        """Queries whether a key or any single key from a collection of keys was pressed this frame."""
+        if isinstance(key_ids, int):
+            return key_ids in Inputs.KEYS_PRESSED_THIS_FRAME
+        else:
+            return any(k in Inputs.KEYS_PRESSED_THIS_FRAME for k in key_ids)
+
+
 class Entity:
+    """An object in the level."""
 
     def __init__(self, rect: pygame.Rect, solid=True, color="red"):
         self.size = rect.size
+        self.solid = solid
+        self.color = color
 
         self.pos = pygame.Vector2(rect.x, rect.y)
         self.vel = pygame.Vector2(0, 0)
 
-        self.color = color
-        self.solid = solid
+        self.max_vel = (float('inf'), float('inf'))  # pixels per second
+        self.gravity = 0                             # pixels per second^2
+
+        # status variables
+        self.dead = False
+        self.is_grounded = False
 
         self.level = None
 
     def get_rect(self) -> pygame.Rect:
+        """Returns an integer rectangle representing this entity's position and size."""
         return pygame.Rect(self.pos.x, self.pos.y, self.size[0], self.size[1])
+
+    def handle_collision(self, others: typing.Collection['Entity']):
+        pass
+
+    def handle_death(self):
+        self.remove_self_from_level()
 
     def remove_self_from_level(self):
         if self.level is not None:
             self.level.remove_entity(self)
 
-    def update_physics(self, dt: float):
-        self.pos += dt * self.vel
-
     def update(self, dt: float):
         self.update_physics(dt)
 
-    def draw(self, surface: pygame.Surface, offset=(0, 0)):
-        pygame.draw.rect(surface, self.color, self.get_rect().move(*offset))
-
-
-class Actor(Entity):
-
-    def __init__(self, rect: pygame.Rect, color="green"):
-        super().__init__(rect, color=color)
-
-        self.max_vel = (64, 640)  # pixels per second
-        self.jump_height = 18     # pixels
-        self.gravity = 200        # pixels per second^2
-
-        self.is_grounded = False
-        self.wants_to_jump = False
-
-    def act(self, keys_pressed_this_frame: typing.Set[int]):
-        pass
-
-    def get_jump_speed(self):
-        # https://openstax.org/books/university-physics-volume-1/pages/4-3-projectile-motion
-        return math.sqrt(2 * self.gravity * self.jump_height)
-
-    def try_to_jump(self):
-        self.wants_to_jump = True
-
-    def update(self, dt: float):
-        if self.wants_to_jump: # and self.is_grounded:
-            self.vel.y = -self.get_jump_speed()  # remember negatives are UP on the y-axis
-        self.wants_to_jump = False
-
-        super().update(dt)
-
     def update_physics(self, dt: float):
-        self.vel.y += self.gravity * dt  # apply gravity
+        # apply gravity
+        self.vel.y += dt * self.gravity
 
         # restrict velocity to its acceptable range
         self.vel.x = Utils.bound(self.vel.x, -self.max_vel[0], self.max_vel[0])
         self.vel.y = Utils.bound(self.vel.y, -self.max_vel[1], self.max_vel[1])
 
-        super().update_physics(dt)
+        # apply velocity
+        self.pos += dt * self.vel
+
+    def draw(self, surface: pygame.Surface, offset=(0, 0)):
+        pygame.draw.rect(surface, self.color, self.get_rect().move(*offset))
+
+    def __repr__(self):
+        return f"{type(self).__name__}({self.get_rect()})"
 
 
-class Player(Actor):
+class Player(Entity):
+
+    JUMP_KEYS = (pygame.K_SPACE, pygame.K_w, pygame.K_UP)
+    MOVE_LEFT_KEYS = (pygame.K_LEFT, pygame.K_a)
+    MOVE_RIGHT_KEYS = (pygame.K_RIGHT, pygame.K_d)
 
     def __init__(self, rect: pygame.Rect, color="blue"):
         super().__init__(rect, color=color)
 
-    def handle_keypress(self, key_id: int):
-        if key_id in (pygame.K_SPACE, pygame.K_w, pygame.K_UP):
-            self.try_to_jump()
+        # these values feel good when cells are 32x32
+        self.jump_height = 80       # pixels
+        self.max_vel = (112, 512)   # pixels / sec
+        self.gravity = 480          # pixels / sec^2
 
-    def act(self, keys_pressed_this_frame: typing.Set[int]):
-        for k in (pygame.K_SPACE, pygame.K_w, pygame.K_UP):
-            if k in keys_pressed_this_frame:
-                self.try_to_jump()
-                break
+        # how much faster the player should fall when jump key is released
+        self.fastfall_gravity_multiplier = 1.25
+
+    def calc_jump_speed(self):
+        """returns: the player's initial speed when it jumps."""
+        return math.sqrt(2 * self.gravity * self.jump_height)
 
     def update(self, dt: float):
-        pressed_keys = pygame.key.get_pressed()
+        # handle jumping
+        if self.is_grounded and Inputs.was_pressed_this_frame(Player.JUMP_KEYS):
+            self.vel.y = -self.calc_jump_speed()
 
+        # handle walking and drifting horizontally
         walk_dir = 0
-        if pressed_keys[pygame.K_a] or pressed_keys[pygame.K_LEFT]:
+        if Inputs.is_held(Player.MOVE_LEFT_KEYS):
             walk_dir -= 1
-        if pressed_keys[pygame.K_d] or pressed_keys[pygame.K_RIGHT]:
+        if Inputs.is_held(Player.MOVE_RIGHT_KEYS):
             walk_dir += 1
-
         self.vel.x = walk_dir * self.max_vel[0]
 
         super().update(dt)
 
+    def update_physics(self, dt: float):
+        # if we're moving upward but not holding jump, add some extra gravity.
+        # this gives the player more control over the jump's height.
+        if self.vel.y < 0 and not Inputs.is_held(Player.JUMP_KEYS):
+            self.vel.y += self.gravity * dt * self.fastfall_gravity_multiplier
+
+        super().update_physics(dt)
+
 
 class Tile:
+    """A cell-based piece of level geometry."""
 
     def __init__(self, solid=True, color="white"):
         self.solid = solid
@@ -136,7 +193,7 @@ class Tile:
 
 class Level:
 
-    def __init__(self, cell_size=(16, 16)):
+    def __init__(self, cell_size=(32, 32)):
         self.cell_size = cell_size
 
         self.tiles: typing.Dict[typing.Tuple[int, int], Tile] = {}
@@ -154,18 +211,19 @@ class Level:
         self.entities.append(entity)
 
     def remove_entity(self, entity: Entity):
-        entity.level = None
-        self.entities.remove(entity)
+        self.remove_entities([entity])
 
-    def all_actors(self) -> typing.Generator[Actor, None, None]:
-        for entity in self.entities:
-            if isinstance(entity, Actor):
-                yield entity
+    def remove_entities(self, entity_list: typing.List[Entity]):
+        ids_to_remove = set()
+        for entity in entity_list:
+            entity.level = None
+            ids_to_remove.add(id(entity))
+        self.entities = [entity for entity in self.entities if id(entity) not in ids_to_remove]
 
     def get_player(self) -> typing.Optional[Player]:
-        for actor in self.all_actors():
-            if isinstance(actor, Player):
-                return actor
+        for entity in self.entities:
+            if isinstance(entity, Player):
+                return entity
         return None
 
     def all_grid_coords_in_rect(self, rect: pygame.Rect) -> typing.Generator[typing.Tuple[int, int], None, None]:
@@ -182,6 +240,10 @@ class Level:
             if entity.get_rect().colliderect(rect):
                 yield entity
 
+    def draw_all(self, surface: pygame.Surface, offset=(0, 0)):
+        self.draw_tiles(surface, offset=offset)
+        self.draw_entities(surface, offset=offset)
+
     def draw_tiles(self, surface: pygame.Surface, offset=(0, 0)):
         area_to_draw = surface.get_rect(topleft=offset)
         for grid_xy in self.all_grid_coords_in_rect(area_to_draw):
@@ -193,12 +255,9 @@ class Level:
         for entity in self.all_entities_in_rect(area_to_draw):
             entity.draw(surface, offset=offset)
 
-    def update_all(self, dt: float, keys_pressed_this_frame: typing.Set[int]):
+    def update_all(self, dt: float):
         for entity in self.entities:
-            if isinstance(entity, Actor):
-                entity.act(keys_pressed_this_frame)
             entity.update(dt)
-
         self.resolve_collisions(max_displacement=max(self.cell_size))
 
     def is_overlapping_solid_tile(self, rect):
@@ -208,53 +267,97 @@ class Level:
         return False
 
     def resolve_collisions(self, max_displacement=float('inf')):
-        solid_entities = [entity for entity in self.entities if entity.solid]
-        max_displacement_sq = max_displacement ** 2
+        """Resolves entity-tile collisions and entity-entity overlaps.
+            This is where the magic happens.
+        """
+        # handling entity-to-tile collisions
+        # this logic is roughly O(N) w.r.t the number of entities in the level.
+        for entity in self.entities:
+            if entity.dead or not entity.solid:
+                # dead and non-solid entities don't collide with tiles.
+                continue
 
-        for entity in solid_entities:
             rect = entity.get_rect()
             if not self.is_overlapping_solid_tile(rect):
                 # it's not colliding with anything, easy
-                shift = (0, 0)
+                best_shift = (0, 0)
             else:
-                shift = None
-
-                candidate_shifts = [(0, 0, 0)]
+                # entity is colliding with the tile grid. so try to find the nearest valid position
+                # it can be shifted to (within max_displacement). if no position exists, the entity
+                # is marked dead.
+                best_shift = None
+                candidate_shifts = [(0, 0, 0)]  # items are (total_distance, x_shift_dist, y_shift_dist)
                 seen_shifts = set(candidate_shifts)
+
                 while len(candidate_shifts) > 0:
+                    # the purpose of the heapq stuff is to ensure we're always checking
+                    # the candidate position that's closest to the original position.
                     cur_shift = heapq.heappop(candidate_shifts)
                     new_rect = rect.move(*cur_shift[1:])
 
                     if not self.is_overlapping_solid_tile(new_rect):
-                        shift = cur_shift[1:]
+                        # we found a valid position
+                        best_shift = cur_shift[1:]
                         break
                     else:
+                        # add neighbors of the position we just checked to the queue
                         for xy in ((0, -1), (-1, 0), (1, 0), (0, 1)):
                             next_shift_x = cur_shift[1] + xy[0]
                             next_shift_y = cur_shift[2] + xy[1]
                             next_shift = ((next_shift_x ** 2 + next_shift_y ** 2), next_shift_x, next_shift_y)
-                            if next_shift not in seen_shifts and next_shift[0] <= max_displacement_sq:
+                            if next_shift not in seen_shifts and next_shift[0] <= max_displacement ** 2:
                                 seen_shifts.add(next_shift)
                                 heapq.heappush(candidate_shifts, next_shift)
 
-            if shift is None:
-                print(f"INFO: {entity} was crushed!")
+            if best_shift is None:
+                # we couldn't find a valid position; entity got crushed!
                 entity.dead = True
             else:
-                if shift[0] != 0:
-                    entity.pos.x = rect.x + shift[0]
-                    if entity.vel.x * shift[0] < 0:
+                # shift the entity to the position we found, and update its velocity if necessary.
+                # (e.g. if it was moving down, and got shifted up, that means it collided from below,
+                # so set its y-velocity to 0).
+                if best_shift[0] != 0:
+                    entity.pos.x = rect.x + best_shift[0]
+                    if entity.vel.x * best_shift[0] < 0:
                         entity.vel.x = 0
-                if shift[1] != 0:
-                    if entity.vel.y * shift[1] < 0:
+                if best_shift[1] != 0:
+                    if entity.vel.y * best_shift[1] < 0:
                         entity.vel.y = 0
-                    entity.pos.y = rect.y + shift[1]
+                    entity.pos.y = rect.y + best_shift[1]
 
-            if isinstance(entity, Actor) and self.is_overlapping_solid_tile(rect.move(0, 1)):
-                entity.is_grounded = True
+            entity.is_grounded = self.is_overlapping_solid_tile(rect.move(0, 1))
+
+        # handling entity-to-entity overlaps.
+        # this logic is roughly O(N) w.r.t to the number of entities in the level.
+        entity_grid = {}
+        for entity in self.entities:
+            if not entity.dead:
+                for grid_xy in self.all_grid_coords_in_rect(entity.get_rect()):
+                    if grid_xy not in entity_grid:
+                        entity_grid[grid_xy] = []
+                    entity_grid[grid_xy].append(entity)
+
+        for entity in self.entities:
+            if not entity.dead:
+                collided_with = {}
+                for grid_xy in self.all_grid_coords_in_rect(entity.get_rect()):
+                    if grid_xy in entity_grid:
+                        for other in entity_grid[grid_xy]:
+                            if other is not entity and id(other) not in collided_with and not other.dead:
+                                if entity.get_rect().colliderect(other.get_rect()):
+                                    # found an overlap!
+                                    collided_with[id(other)] = other
+                if len(collided_with) > 0:
+                    entity.handle_collision(collided_with.values())
+
+        # remove dead entities
+        dead_entities = list(filter(lambda ent: ent.dead, self.entities))
+        for entity in dead_entities:
+            entity.handle_death()
+        self.remove_entities(dead_entities)
 
 
-def make_demo_level(dims=(32, 16), density=0.2, cell_size = (16, 16)):
+def make_demo_level(dims=(20, 15), density=0.2, cell_size=(32, 32)):
     level = Level(cell_size=cell_size)
     colors = ["darkslategray1", "darkslategray2", "darkslategray3"]
     tiles = [Tile(solid=True, color=c) for c in colors]
@@ -264,9 +367,10 @@ def make_demo_level(dims=(32, 16), density=0.2, cell_size = (16, 16)):
             if random.random() < density:
                 level.set_tile((x, y), random.choice(tiles))
 
-    player_rect = pygame.Rect(0, 0, 8, 12)
+    player_rect = pygame.Rect(0, 0, int(cell_size[0] * 0.5), int(cell_size[1] * 0.8))
     player_rect.center = (dims[0] * cell_size[0] // 2, dims[1] * cell_size[1] // 2)
     player = Player(player_rect)
+
     level.add_entity(player)
 
     # clear some space for the player
@@ -281,34 +385,41 @@ if __name__ == "__main__":
     pygame.display.set_mode((640, 480), flags=pygame.RESIZABLE)
 
     clock = pygame.time.Clock()
-    dt = 0
-    running = True
     FPS = 60
 
     level = make_demo_level()
     camera = [0, 0]
 
-    while running:
-        keys_pressed_this_frame = set()
+    dt = 0
+    running = True
 
+    while running:
+        # input handling
+        Inputs.prepare_for_next_frame()
         for e in pygame.event.get():
             if e.type == pygame.QUIT:
                 running = False
             elif e.type == pygame.KEYDOWN:
-                keys_pressed_this_frame.add(e.key)
+                Inputs.handle_key_down(e.key)
+            elif e.type == pygame.KEYUP:
+                Inputs.handle_key_up(e.key)
+
+            # debug keybinds
+            if e.type == pygame.KEYDOWN:
                 if e.key == pygame.K_r:
-                    print("INFO: reset level")
+                    # press 'R' to reset level
                     level = make_demo_level()
 
-        level.update_all(dt, keys_pressed_this_frame)
+        # game logic
+        level.update_all(dt)
 
+        # rendering logic
         screen = pygame.display.get_surface()
         screen.fill("black")
-
-        level.draw_tiles(screen, offset=camera)
-        level.draw_entities(screen, offset=camera)
-
+        level.draw_all(screen, offset=camera)
         pygame.display.flip()
+
+        pygame.display.set_caption(f"Platformer Demo (FPS={clock.get_fps():.1f})")
         dt = clock.tick(FPS) / 1000.0
         dt = min(4 / FPS, dt)  # set upper limit on dt
 
