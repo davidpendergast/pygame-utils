@@ -380,6 +380,30 @@ def make_demo_level(dims=(20, 15), density=0.2, cell_size=(32, 32)):
     return level
 
 
+def draw_translucent_rect(surface: pygame.Surface, color, rect: pygame.Rect):
+    new_surf = pygame.Surface(rect.size)
+    new_surf.fill(color)
+    if len(color) >= 4:
+        new_surf.set_alpha(color[3])
+    surface.blit(new_surf, rect.topleft)
+
+
+def draw_translucent_circle(surface, color, center, radius, width=0):
+    new_surf = pygame.Surface((int(radius * 2), int(radius * 2)))
+
+    # if shape's color isn't black, use black as the colorkey (otherwise use white)
+    if color[0:3] != (0, 0, 0):
+        new_surf.set_colorkey((0, 0, 0))
+    else:
+        new_surf.fill((255, 255, 255))
+        new_surf.set_colorkey((255, 255, 255))
+
+    pygame.draw.circle(new_surf, color, (radius, radius), radius, width=width)
+    if len(color) >= 4:
+        new_surf.set_alpha(color[3])
+    surface.blit(new_surf, (center[0] - radius, center[1] - radius))
+
+
 if __name__ == "__main__":
     pygame.init()
     pygame.display.set_mode((640, 480), flags=pygame.RESIZABLE)
@@ -417,6 +441,9 @@ if __name__ == "__main__":
         screen = pygame.display.get_surface()
         screen.fill("black")
         level.draw_all(screen, offset=camera)
+
+        draw_translucent_rect(screen, (125, 255, 100, 75), pygame.Rect(100, 200, 300, 200))
+        draw_translucent_circle(screen, (0, 0, 0, 120), (450, 200), 75)
         pygame.display.flip()
 
         pygame.display.set_caption(f"Platformer Demo (FPS={clock.get_fps():.1f})")
