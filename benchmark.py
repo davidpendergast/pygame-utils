@@ -54,13 +54,12 @@ def _calc_avg_lengths(w, h, n=10000):
     return total_dist / n, total_dx / n, total_dy / n
 
 
-# For the given screen size, these are the average distances between two random points.
+# For the current screen size, these are the average distances between two random points.
 AVG_LENGTH, AVG_WIDTH, AVG_HEIGHT = _calc_avg_lengths(*SCREEN_SIZE)
 
-# Want to render lines and hollow shapes such that on average they'll have about
-# PX_PER_ENT pixels changed per render. Note that these are approximate (particularly
-# the circle one, which assumes the relationship between radius and pixels changed
-# is linear (it's actually quadratic)).
+# Want to define the geometric entities such that on average they'll have an area of
+# about PX_PER_ENT pixels. Note that these are approximate (particularly the circle one,
+# which assumes the relationship between radius and pixels changed is linear (it's actually quadratic)).
 LINE_THICKNESS = max(1, round(PX_PER_ENT / AVG_LENGTH))
 HOLLOW_RECT_THICKNESS = max(1, round(PX_PER_ENT / (2 * (AVG_WIDTH + AVG_HEIGHT))))
 HOLLOW_CIRCLE_RADIUS_MULT = 0.25
@@ -74,7 +73,7 @@ def _print_info():
     print(f"\nStarting new simulation:\n"
           f"  Screen size =   {SCREEN_SIZE}\n"
           f"  Entity size =   {ENT_SIZE}x{ENT_SIZE}\n"
-          f"  Terminal FPS =  {STOP_AT_FPS}")
+          f"  Minimum FPS =   {STOP_AT_FPS}")
     print(f"\nAverage number of pixels changed per render:")
     print(f"  Filled Rect:    {PX_PER_ENT:.2f} = {ENT_SIZE}**2")
     print(f"  Filled Circle:  {math.pi * FILLED_CIRCLE_RADIUS**2:.2f} = pi * {FILLED_CIRCLE_RADIUS} ** 2")
@@ -102,9 +101,8 @@ class EntityFactory:
 
 class Renderer:
 
-    def __init__(self, screen, px_per_ent, n_pts=512, ent_types=tuple(e for e in EntityType), seed=27182818):
+    def __init__(self, screen, n_pts=512, ent_types=tuple(e for e in EntityType), seed=27182818):
         self.screen = screen
-        self.px_per_ent = px_per_ent
         self.entities = []
         self.ent_types = ent_types
         self.random = random.Random(x=seed)
@@ -122,9 +120,6 @@ class Renderer:
             v.scale_to_length(random.randint(30, 50))
 
         self.t = 0  # current time
-
-        self.shape_length = 1 + int(math.sqrt(px_per_ent))  # size of filled-in shapes
-
         self.colors = ["red", "green", "blue", "yellow", "cyan", "magenta"]
 
         # Pre-compute the surfaces that entities may need.
@@ -132,18 +127,18 @@ class Renderer:
         self.rgba_surfs = []
         self.rgb_surfs_with_alpha = []
         for idx, c in enumerate(self.colors):
-            rgb_surf = pygame.Surface((self.shape_length, self.shape_length))
+            rgb_surf = pygame.Surface((ENT_SIZE, ENT_SIZE))
             rgb_surf.fill(c)
             self.rgb_surfs.append(rgb_surf)
 
             opacity = (idx + 1) / len(self.colors)
 
-            rgba_surf = pygame.Surface((self.shape_length, self.shape_length), flags=pygame.SRCALPHA)
+            rgba_surf = pygame.Surface((ENT_SIZE, ENT_SIZE), flags=pygame.SRCALPHA)
             rgb = tuple(i for i in pygame.color.Color(c))
             rgba_surf.fill((*rgb[:3], int(opacity * 255)))
             self.rgba_surfs.append(rgba_surf)
 
-            rgb_surf_with_alpha = pygame.Surface((self.shape_length, self.shape_length))
+            rgb_surf_with_alpha = pygame.Surface((ENT_SIZE, ENT_SIZE))
             rgb_surf_with_alpha.fill(c)
             rgb_surf_with_alpha.set_alpha(int(opacity * 255))
             self.rgb_surfs_with_alpha.append(rgb_surf_with_alpha)
@@ -197,7 +192,7 @@ class Renderer:
 
     def render_RECT_FILLED(self, p1, p2, color_idx):
         c = self.colors[color_idx % len(self.colors)]
-        pygame.draw.rect(screen, c, (p1[0], p1[1], self.shape_length, self.shape_length))
+        pygame.draw.rect(screen, c, (p1[0], p1[1], ENT_SIZE, ENT_SIZE))
 
     def render_CIRCLE_HOLLOW(self, p1, p2, color_idx):
         c = self.colors[color_idx % len(self.colors)]
@@ -218,7 +213,7 @@ def start_plot(title, subtitle=None):
     plt.xlabel('Entities')
     plt.ylabel('FPS')
     plt.yscale('log')
-    yticks = [15, 30, 60, 120, 240]
+    yticks = [15, 30, 45, 60, 120, 144, 240]
     plt.yticks(yticks, [str(yt) for yt in yticks])
 
 
@@ -316,7 +311,7 @@ class TestCase:
     def start(self, pause=2):
         pygame.display.set_caption(f"{self.caption_title}".replace("#", "N=0"))
         self.factory = EntityFactory(seed=self.seed)
-        self.renderer = Renderer(self.screen, ENT_SIZE ** 2, ent_types=self.ent_types, seed=self.seed)
+        self.renderer = Renderer(self.screen, ent_types=self.ent_types, seed=self.seed)
         self.renderer.t = -pause
 
         self.clock = pygame.time.Clock()
@@ -359,7 +354,7 @@ class TestCase:
 
 def _print_result(case_num, test, res, fps_to_display=(144, 120, 60, STOP_AT_FPS)):
     print(f"\n{case_num}. {test.name} Results:")
-    x, y = get_x_and_y(res, smooth_radius=GRAPH_SMOOTHING_RADIUS)
+    x, y = get_x_and_y(res, smooth_radius=GRAPH_SMOOTHING_RADIUS * SPAWN_RATE)
     for fps in reversed(sorted(set(fps_to_display))):
         t = solve_for_t(x, y, fps, or_else=float('NaN'))
         print(f"  {fps:>3} FPS: {int(t):>4} entities")
