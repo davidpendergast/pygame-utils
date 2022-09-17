@@ -24,6 +24,8 @@ LOW_FPS_GRACE_PERIOD = 0.5      # seconds
 PAUSE_BETWEEN_TESTS_TIME = 1    # seconds
 GRAPH_SMOOTHING_RADIUS = 1      # seconds
 
+PX_PER_ENT = ENT_SIZE ** 2
+
 
 class EntityType(enum.IntEnum):
     SURF_RGB = 0                # Surface with no per-pixel alpha
@@ -37,15 +39,65 @@ class EntityType(enum.IntEnum):
     CIRCLE_HOLLOW = 7           # A circle drawn via pygame.draw.cricle (with width > 0)
 
 
+def _calc_avg_lengths(w, h, n=10000):
+    total_dx = 0
+    total_dy = 0
+    total_dist = 0
+    for _ in range(n):
+        p1 = random.randint(0, w - 1), random.randint(0, h - 1)
+        p2 = random.randint(0, w - 1), random.randint(0, h - 1)
+        dx = p1[0] - p2[0]
+        dy = p1[1] - p2[1]
+        total_dx += abs(dx)
+        total_dy += abs(dy)
+        total_dist += math.sqrt(dx * dx + dy * dy)
+    return total_dist / n, total_dx / n, total_dy / n
+
+
+# For the given screen size, these are the average distances between two random points.
+AVG_LENGTH, AVG_WIDTH, AVG_HEIGHT = _calc_avg_lengths(*SCREEN_SIZE)
+
+# Want to render lines and hollow shapes such that on average they'll have about
+# PX_PER_ENT pixels changed per render. Note that these are approximate (particularly
+# the circle one, which assumes the relationship between radius and pixels changed
+# is linear (it's actually quadratic)).
+LINE_THICKNESS = max(1, round(PX_PER_ENT / AVG_LENGTH))
+HOLLOW_RECT_THICKNESS = max(1, round(PX_PER_ENT / (2 * (AVG_WIDTH + AVG_HEIGHT))))
+HOLLOW_CIRCLE_RADIUS_MULT = 0.25
+HOLLOW_CIRCLE_THICKNESS = max(1, round((AVG_LENGTH * HOLLOW_CIRCLE_RADIUS_MULT)
+                                       - math.sqrt(max(0, (AVG_LENGTH * HOLLOW_CIRCLE_RADIUS_MULT) ** 2
+                                                       - PX_PER_ENT / math.pi))))
+FILLED_CIRCLE_RADIUS = max(1, round(math.sqrt(PX_PER_ENT / math.pi)))
+
+
+def _print_info():
+    print(f"\nStarting new simulation:\n"
+          f"  Screen size =   {SCREEN_SIZE}\n"
+          f"  Entity size =   {ENT_SIZE}x{ENT_SIZE}\n"
+          f"  Terminal FPS =  {STOP_AT_FPS}")
+    print(f"\nAverage number of pixels changed per render:")
+    print(f"  Filled Rect:    {PX_PER_ENT:.2f} = {ENT_SIZE}**2")
+    print(f"  Filled Circle:  {math.pi * FILLED_CIRCLE_RADIUS**2:.2f} = pi * {FILLED_CIRCLE_RADIUS} ** 2")
+    print(f"  Line:           {AVG_LENGTH * LINE_THICKNESS:.2f} = {AVG_LENGTH:.2f} * {LINE_THICKNESS:.2f}")
+    print(f"  Hollow Rect:    {2 * (AVG_WIDTH + AVG_HEIGHT) * HOLLOW_RECT_THICKNESS:.2f}"
+          f" = 2 * ({AVG_WIDTH:.2f} + {AVG_HEIGHT:.2f}) * {HOLLOW_RECT_THICKNESS:.2f}")
+    avg_hollow_circle_area = math.pi * ((AVG_LENGTH * HOLLOW_CIRCLE_RADIUS_MULT)**2
+                                        - (AVG_LENGTH*HOLLOW_CIRCLE_RADIUS_MULT - HOLLOW_CIRCLE_THICKNESS)**2)
+    print(f"  Hollow Circle:  {avg_hollow_circle_area:.2f}"
+          f" = pi * (({AVG_LENGTH:.2f})**2 - ({AVG_LENGTH:.2f}"
+          f" - {HOLLOW_CIRCLE_THICKNESS:.2f})**2) (approx.)")
+
+
 class EntityFactory:
 
     def __init__(self, seed=27182818):
         self.rand = random.Random(x=seed)
 
     def get_next(self):
-        return (random.randint(0, 4096),  # an entity is just 3 random numbers
-                random.randint(0, 4096),
-                random.randint(0, 4096))
+        return (random.randint(0, 4096),  # determines Entity type
+                random.randint(0, 4096),  # determines (x1, y1)
+                random.randint(0, 4096),  # determines (x2, y2)
+                random.randint(0, 4096))  # determines color and/or opacity
 
 
 class Renderer:
@@ -96,11 +148,6 @@ class Renderer:
             rgb_surf_with_alpha.set_alpha(int(opacity * 255))
             self.rgb_surfs_with_alpha.append(rgb_surf_with_alpha)
 
-        # Want to render the hollow shapes so that on average they'll have about
-        # px_per_ent pixels changed per render (note that these are totally off the dome).
-        self.line_thickness = max(1, int(px_per_ent / (math.sqrt(w**2 + h**2) * 0.666)))
-        self.shape_thickness = max(1, int(px_per_ent / (4 * (w + h) / 3)))
-
         # Bit hacky, but it's important to look up each entity's render method quickly.
         self.render_methods = [None] * len(EntityType)
         for e in EntityType:
@@ -120,52 +167,46 @@ class Renderer:
     def render(self, bg_color=(0, 0, 0)):
         self.screen.fill(bg_color)
         for ent in self.entities:
+            # extract entity info from tuple
             ent_type = self.ent_types[ent[0] % len(self.ent_types)]
-            self.render_methods[ent_type](*ent)  # hack activated
+            p1 = self.get_pt(ent[1])
+            p2 = self.get_pt(ent[2])
+            color_idx = ent[3]
 
-    def render_SURF_RGB(self, x1, x2, x3):
-        pos = self.get_pt(x1)
-        surf = self.rgb_surfs[x2 % len(self.rgb_surfs)]
-        self.screen.blit(surf, pos)
+            self.render_methods[ent_type](p1, p2, color_idx)  # hack activated
 
-    def render_SURF_RGBA(self, x1, x2, x3):
-        pos = self.get_pt(x1)
-        surf = self.rgba_surfs[x2 % len(self.rgba_surfs)]
-        self.screen.blit(surf, pos)
+    def render_SURF_RGB(self, p1, p2, color_idx):
+        surf = self.rgb_surfs[color_idx % len(self.rgb_surfs)]
+        self.screen.blit(surf, p1)
 
-    def render_SURF_RGB_WITH_ALPHA(self, x1, x2, x3):
-        pos = self.get_pt(x1)
-        surf = self.rgb_surfs_with_alpha[x2 % len(self.rgba_surfs)]
-        self.screen.blit(surf, pos)
+    def render_SURF_RGBA(self, p1, p2, color_idx):
+        surf = self.rgba_surfs[color_idx % len(self.rgba_surfs)]
+        self.screen.blit(surf, p1)
 
-    def render_LINE(self, x1, x2, x3):
-        p1 = self.get_pt(x1)
-        c = self.colors[x2 % len(self.colors)]
-        p2 = self.get_pt(x3)
-        pygame.draw.line(screen, c, p1, p2, width=self.line_thickness)
+    def render_SURF_RGB_WITH_ALPHA(self, p1, p2, color_idx):
+        surf = self.rgb_surfs_with_alpha[color_idx % len(self.rgb_surfs_with_alpha)]
+        self.screen.blit(surf, p1)
 
-    def render_RECT_HOLLOW(self, x1, x2, x3):
-        p1 = self.get_pt(x1)
-        c = self.colors[x2 % len(self.colors)]
-        p2 = self.get_pt(x3)
-        pygame.draw.rect(screen, c, (p1[0], p1[1], p2[0] - p1[0], p2[1] - p1[1]), width=self.shape_thickness)
+    def render_LINE(self, p1, p2, color_idx):
+        c = self.colors[color_idx % len(self.colors)]
+        pygame.draw.line(screen, c, p1, p2, width=LINE_THICKNESS)
 
-    def render_RECT_FILLED(self, x1, x2, x3):
-        p1 = self.get_pt(x1)
-        c = self.colors[x2 % len(self.colors)]
+    def render_RECT_HOLLOW(self, p1, p2, color_idx):
+        c = self.colors[color_idx % len(self.colors)]
+        pygame.draw.rect(screen, c, (p1[0], p1[1], p2[0] - p1[0], p2[1] - p1[1]), width=HOLLOW_RECT_THICKNESS)
+
+    def render_RECT_FILLED(self, p1, p2, color_idx):
+        c = self.colors[color_idx % len(self.colors)]
         pygame.draw.rect(screen, c, (p1[0], p1[1], self.shape_length, self.shape_length))
 
-    def render_CIRCLE_HOLLOW(self, x1, x2, x3):
-        p1 = self.get_pt(x1)
-        c = self.colors[x2 % len(self.colors)]
-        p2 = self.get_pt(x3)
-        r = (abs(p2[0] - p1[0]) + abs(p2[1] - p1[0])) / 3
-        pygame.draw.circle(screen, c, p1, r, width=self.shape_thickness)
+    def render_CIRCLE_HOLLOW(self, p1, p2, color_idx):
+        c = self.colors[color_idx % len(self.colors)]
+        r = (abs(p2[0] - p1[0]) + abs(p2[1] - p1[0])) * HOLLOW_CIRCLE_RADIUS_MULT
+        pygame.draw.circle(screen, c, p1, r, width=HOLLOW_CIRCLE_THICKNESS)
 
-    def render_CIRCLE_FILLED(self, x1, x2, x3):
-        p1 = self.get_pt(x1)
-        c = self.colors[x2 % len(self.colors)]
-        pygame.draw.circle(screen, c, p1, self.shape_length / 2)
+    def render_CIRCLE_FILLED(self, p1, p2, color_idx):
+        c = self.colors[color_idx % len(self.colors)]
+        pygame.draw.circle(screen, c, p1, FILLED_CIRCLE_RADIUS)
 
 
 def start_plot(title, subtitle=None):
@@ -187,15 +228,19 @@ def finish_plot():
     plt.show()
 
 
-def add_to_plot(data, label, show_t60=False, smooth_radius=0):
+def get_x_and_y(data, smooth_radius=0):
     x = []
     y = []
     for cnt in data:
         x.append(cnt)
         y.append(data[cnt])
-
     if smooth_radius > 0 and len(x) > 0:
         y = smooth_data(x, y, smooth_radius)
+    return x, y
+
+
+def add_to_plot(data, label, show_t60=False, smooth_radius=0):
+    x, y = get_x_and_y(data, smooth_radius=smooth_radius)
 
     if show_t60:
         t60 = solve_for_t(x, y, 60)
@@ -312,9 +357,19 @@ class TestCase:
         return results
 
 
+def _print_result(case_num, test, res, fps_to_display=(144, 120, 60, STOP_AT_FPS)):
+    print(f"\n{case_num}. {test.name} Results:")
+    x, y = get_x_and_y(res, smooth_radius=GRAPH_SMOOTHING_RADIUS)
+    for fps in reversed(sorted(set(fps_to_display))):
+        t = solve_for_t(x, y, fps, or_else=float('NaN'))
+        print(f"  {fps:>3} FPS: {int(t):>4} entities")
+
+
 if __name__ == "__main__":
     pygame.init()
     screen = pygame.display.set_mode(SCREEN_SIZE)
+
+    _print_info()
 
     n_cases = 1 + len(EntityType)
     test_cases = [TestCase("ALL", f"ALL (#, CASE=1/{n_cases})",  screen)]
@@ -326,8 +381,10 @@ if __name__ == "__main__":
         for test in test_cases:
             res = test.start(pause=PAUSE_BETWEEN_TESTS_TIME)
             all_results[test.name] = res
+            _print_result(test_cases.index(test) + 1, test, res)
     except ValueError as err:
         if str(err) == "Quit":
+            print("\nWARN: Benchmark was cancelled before completion")
             pass  # show partial results even if you quit
         else:
             raise err
@@ -336,6 +393,7 @@ if __name__ == "__main__":
 
     # display the plots
     if len(all_results) > 0:
+        print("\nDisplaying plot...")
         pg_ver = pygame.version.ver
         sdl_ver = ".".join(str(v) for v in pygame.version.SDL)
         py_ver = ".".join(str(v) for v in sys.version_info[:3])
