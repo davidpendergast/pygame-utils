@@ -74,6 +74,33 @@ message = steganography.load_text_from_image_file("path/to/file.png")
 print(message)  # prints "secret message"
 ```
 
+# benchmark ([benchmark.py](benchmark.py))
+A program that benchmarks pygame's rendering and displays the results in a graph.
+
+Requires `matplotlib` (`pip install matplotlib`).
+
+### Instructions
+Use `python benchmark.py` to run the tests with default settings, or `python benchmark.py --help` to see all settings. 
+
+If you close the window while the test is running, the results from cases that have already completed will still be shown.
+
+### Sample Results
+![benchmark_results.png](screenshots/benchmark_results.png?raw=true "benchmark_results")
+
+A plot that shows the relationship between FPS and the number of entities being rendered. Each line is a separate test case.
+```
+ALL           = Entities of all types rendered together
+SURF_RGB      = Surfaces with no translucency
+SURF_RGBA     = Surfaces with per-pixel translucency
+SURF_RGB_WITH_ALPHA = Surfaces with full-surface translucency
+RECT_FILLED   = pygame.draw.rect with width = 0 (i.e. filled)
+CIRCLE_FILLED = pygame.draw.circle with width = 0 (i.e. filled)
+LINE          = pygame.draw.line
+RECT_HOLLOW   = pygame.draw.rect with width > 0
+CIRCLE_HOLLOW = pygame.draw.circle with width > 0
+```
+Note that non-rectangular entities are scaled up and/or assigned widths so that drawing them will roughly change the same number of pixels as blitting a surface. This seemed like the most sensible way to compare rendering speeds.
+
 # double-pendulum ([pendulum.py](pendulum.py))
 An efficient double pendulum simulation using pygame, numpy, and OpenGL.
 
