@@ -403,8 +403,8 @@ def _build_test_cases(screen):
     else:
         n_cases = 1 + len(ents_to_test)
         test_cases = [TestCase("ALL", f"ALL (#, CASE=1/{n_cases})", screen, ents_to_test)]
-        for e in ents_to_test:
-            test_cases.append(TestCase(e.name, f"{e.name} (#, CASE={2 + int(e)}/{n_cases})", screen, (e,)))
+        for e_idx, e in enumerate(ents_to_test):
+            test_cases.append(TestCase(e.name, f"{e.name} (#, CASE={2 + e_idx}/{n_cases})", screen, (e,)))
     return test_cases
 
 
