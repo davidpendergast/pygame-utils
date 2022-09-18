@@ -384,15 +384,17 @@ def _print_result(case_num, test, res, fps_to_display=(144, 120, 60, STOP_AT_FPS
 
 
 def _build_test_cases(screen):
-    ents_to_test = []
-    if INCLUDE_SURFACES:
-        ents_to_test.extend([EntityType.SURF_RGB, EntityType.SURF_RGBA, EntityType.SURF_RGB_WITH_ALPHA])
-    if INCLUDE_FILLED_SHAPES:
-        ents_to_test.extend([EntityType.RECT_FILLED, EntityType.CIRCLE_FILLED])
-    if INCLUDE_LINES:
-        ents_to_test.append(EntityType.LINE)
-    if INCLUDE_HOLLOW_SHAPES:
-        ents_to_test.extend([EntityType.RECT_HOLLOW, EntityType.CIRCLE_HOLLOW])
+    to_exclude = set()
+    if not INCLUDE_SURFACES:
+        to_exclude.update([EntityType.SURF_RGB, EntityType.SURF_RGBA, EntityType.SURF_RGB_WITH_ALPHA])
+    if not INCLUDE_FILLED_SHAPES:
+        to_exclude.update([EntityType.RECT_FILLED, EntityType.CIRCLE_FILLED])
+    if not INCLUDE_LINES:
+        to_exclude.add(EntityType.LINE)
+    if not INCLUDE_HOLLOW_SHAPES:
+        to_exclude.update([EntityType.RECT_HOLLOW, EntityType.CIRCLE_HOLLOW])
+
+    ents_to_test = [e for e in EntityType if e not in to_exclude]
 
     test_cases = []
     if len(ents_to_test) == 0:
