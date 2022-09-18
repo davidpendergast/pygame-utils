@@ -1,14 +1,18 @@
-import pygame
-import matplotlib.pyplot as plt
+import os
+import sys
 
+import argparse
 import math
 import random
 import enum
-import sys
+
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "1"
+import pygame
+import matplotlib.pyplot as plt
 
 
 # Pygame Benchmarking Program
-# by Ghast (@Ghast_NEOH)
+# by Ghast ~ github.com/davidpendergast
 
 
 SCREEN_SIZE = 640, 480
@@ -19,10 +23,18 @@ SPAWN_RATE = 200   # entities per sec, increasing this will make the tests run f
 TICK_RATE = 0.10   # frequency of entity additions and fps measurements
 STOP_AT_FPS = 45   # test cases stop when this FPS is reached
 
-CAPTION_REFRESH_PER_SEC = 3     # per second
-LOW_FPS_GRACE_PERIOD = 0.5      # seconds
-PAUSE_BETWEEN_TESTS_TIME = 1    # seconds
-GRAPH_SMOOTHING_RADIUS = 1      # seconds
+INCLUDE_SURFACES = True
+INCLUDE_FILLED_SHAPES = True
+INCLUDE_HOLLOW_SHAPES = True
+INCLUDE_LINES = True
+
+RAND_SEED = 27182818
+
+CAPTION_REFRESH_PER_SEC = 3     # per second, how frequently to update the window title
+LOW_FPS_GRACE_PERIOD = 0.5      # seconds, how long the FPS can stay under STOP_AT_FPS before ending the test case
+PAUSE_BETWEEN_TESTS_TIME = 1    # seconds, how long to pause between tests
+GRAPH_SMOOTHING_RADIUS = 1      # seconds, how much to smooth the graph (uses running average)
+LOG_AXIS = True                 # whether to use log-scaling for the graph's y-axis
 
 PX_PER_ENT = ENT_SIZE ** 2
 
@@ -35,17 +47,25 @@ class EntityType(enum.IntEnum):
     LINE = 3                    # A line drawn via pygame.draw.line
     RECT_FILLED = 4             # A rect drawn via pygame.draw.rect (with width = 0)
     RECT_HOLLOW = 5             # A rect drawn via pygame.draw.rect (with width > 0)
-    CIRCLE_FILLED = 6           # A circle drawn via pygame.draw.cricle (with width = 0)
-    CIRCLE_HOLLOW = 7           # A circle drawn via pygame.draw.cricle (with width > 0)
+    CIRCLE_FILLED = 6           # A circle drawn via pygame.draw.circle (with width = 0)
+    CIRCLE_HOLLOW = 7           # A circle drawn via pygame.draw.circle (with width > 0)
 
 
 def _calc_avg_lengths(w, h, n=10000):
+    """Finds the average length of a line between two random points in a (w x h) area using random sampling.
+        returns: Average total length, x-length, and y-length
+    """
     total_dx = 0
     total_dy = 0
     total_dist = 0
+
+    # Fixed seed because this can affect the test quite a lot. For example, if hollow circles
+    # use a thickness of 6 pixels instead of 5 that's a 20% increase.
+    rand = random.Random(x=12345)
+
     for _ in range(n):
-        p1 = random.randint(0, w - 1), random.randint(0, h - 1)
-        p2 = random.randint(0, w - 1), random.randint(0, h - 1)
+        p1 = rand.randint(0, w - 1), rand.randint(0, h - 1)
+        p2 = rand.randint(0, w - 1), rand.randint(0, h - 1)
         dx = p1[0] - p2[0]
         dy = p1[1] - p2[1]
         total_dx += abs(dx)
@@ -54,42 +74,44 @@ def _calc_avg_lengths(w, h, n=10000):
     return total_dist / n, total_dx / n, total_dy / n
 
 
-# For the current screen size, these are the average distances between two random points.
 AVG_LENGTH, AVG_WIDTH, AVG_HEIGHT = _calc_avg_lengths(*SCREEN_SIZE)
 
-# Want to define the geometric entities such that on average they'll have an area of
-# about PX_PER_ENT pixels. Note that these are approximate (particularly the circle one,
-# which assumes the relationship between radius and pixels changed is linear (it's actually quadratic)).
-LINE_THICKNESS = max(1, round(PX_PER_ENT / AVG_LENGTH))
-HOLLOW_RECT_THICKNESS = max(1, round(PX_PER_ENT / (2 * (AVG_WIDTH + AVG_HEIGHT))))
-HOLLOW_CIRCLE_RADIUS_MULT = 0.25
-HOLLOW_CIRCLE_THICKNESS = max(1, round((AVG_LENGTH * HOLLOW_CIRCLE_RADIUS_MULT)
-                                       - math.sqrt(max(0, (AVG_LENGTH * HOLLOW_CIRCLE_RADIUS_MULT) ** 2
-                                                       - PX_PER_ENT / math.pi))))
+# Want to define the geometric entities such that on average they'll have an area of about PX_PER_ENT pixels.
+# Note that these are approximate (particularly the circle one, which assumes the relationship between radius
+# and pixels changed is linear (it's actually quadratic)).
+LINE_WIDTH = max(1, round(PX_PER_ENT / AVG_LENGTH))
+HOLLOW_RECT_WIDTH = max(1, round(PX_PER_ENT / (2 * (AVG_WIDTH + AVG_HEIGHT))))
+HOLLOW_CIRCLE_RADIUS_MULT = 0.25  # radius = mult * dist between two random points
+HOLLOW_CIRCLE_WIDTH = max(1, round((AVG_LENGTH * HOLLOW_CIRCLE_RADIUS_MULT)
+                                   - math.sqrt(max(0, (AVG_LENGTH * HOLLOW_CIRCLE_RADIUS_MULT) ** 2
+                                                   - PX_PER_ENT / math.pi))))
 FILLED_CIRCLE_RADIUS = max(1, round(math.sqrt(PX_PER_ENT / math.pi)))
 
 
 def _print_info():
     print(f"\nStarting new simulation:\n"
-          f"  Screen size =   {SCREEN_SIZE}\n"
-          f"  Entity size =   {ENT_SIZE}x{ENT_SIZE}\n"
-          f"  Minimum FPS =   {STOP_AT_FPS}")
+          f"  Screen size =   {SCREEN_SIZE} px\n"
+          f"  Entity size =   {ENT_SIZE} x {ENT_SIZE} px\n"
+          f"  Minimum FPS =   {STOP_AT_FPS} fps\n"
+          f"  Spawn Rate =    {SPAWN_RATE} ents/sec\n"
+          f"  Tick Rate =     {TICK_RATE} sec")
+
     print(f"\nAverage number of pixels changed per render:")
     print(f"  Filled Rect:    {PX_PER_ENT:.2f} = {ENT_SIZE}**2")
     print(f"  Filled Circle:  {math.pi * FILLED_CIRCLE_RADIUS**2:.2f} = pi * {FILLED_CIRCLE_RADIUS} ** 2")
-    print(f"  Line:           {AVG_LENGTH * LINE_THICKNESS:.2f} = {AVG_LENGTH:.2f} * {LINE_THICKNESS:.2f}")
-    print(f"  Hollow Rect:    {2 * (AVG_WIDTH + AVG_HEIGHT) * HOLLOW_RECT_THICKNESS:.2f}"
-          f" = 2 * ({AVG_WIDTH:.2f} + {AVG_HEIGHT:.2f}) * {HOLLOW_RECT_THICKNESS:.2f}")
+    print(f"  Line:           {AVG_LENGTH * LINE_WIDTH:.2f} = {AVG_LENGTH:.2f} * {LINE_WIDTH:.2f}")
+    print(f"  Hollow Rect:    {2 * (AVG_WIDTH + AVG_HEIGHT) * HOLLOW_RECT_WIDTH:.2f}"
+          f" = 2 * ({AVG_WIDTH:.2f} + {AVG_HEIGHT:.2f}) * {HOLLOW_RECT_WIDTH:.2f}")
     avg_hollow_circle_area = math.pi * ((AVG_LENGTH * HOLLOW_CIRCLE_RADIUS_MULT)**2
-                                        - (AVG_LENGTH*HOLLOW_CIRCLE_RADIUS_MULT - HOLLOW_CIRCLE_THICKNESS)**2)
+                                        - (AVG_LENGTH*HOLLOW_CIRCLE_RADIUS_MULT - HOLLOW_CIRCLE_WIDTH)**2)
     print(f"  Hollow Circle:  {avg_hollow_circle_area:.2f}"
           f" = pi * (({AVG_LENGTH:.2f})**2 - ({AVG_LENGTH:.2f}"
-          f" - {HOLLOW_CIRCLE_THICKNESS:.2f})**2) (approx.)")
+          f" - {HOLLOW_CIRCLE_WIDTH:.2f})**2) (approx.)")
 
 
 class EntityFactory:
 
-    def __init__(self, seed=27182818):
+    def __init__(self, seed=RAND_SEED):
         self.rand = random.Random(x=seed)
 
     def get_next(self):
@@ -101,13 +123,13 @@ class EntityFactory:
 
 class Renderer:
 
-    def __init__(self, screen, n_pts=512, ent_types=tuple(e for e in EntityType), seed=27182818):
+    def __init__(self, screen, n_pts=503, ent_types=tuple(e for e in EntityType), seed=RAND_SEED):
         self.screen = screen
         self.entities = []
         self.ent_types = ent_types
         self.random = random.Random(x=seed)
 
-        # Instantiate the invisible points that "float" around the screen.
+        # Instantiate the invisible points that float around the screen.
         # These points determine the locations of entities. Note that they're not
         # updated one-by-one each frame -- instead, their positions are derived
         # on-the-fly using their initial position, velocity, and the time.
@@ -120,9 +142,9 @@ class Renderer:
             v.scale_to_length(random.randint(30, 50))
 
         self.t = 0  # current time
-        self.colors = ["red", "green", "blue", "yellow", "cyan", "magenta"]
+        self.colors = ["red", "green", "blue", "yellow", "cyan", "magenta", "orange"]
 
-        # Pre-compute the surfaces that entities may need.
+        # Precompute the surfaces that entities may need.
         self.rgb_surfs = []
         self.rgba_surfs = []
         self.rgb_surfs_with_alpha = []
@@ -151,9 +173,9 @@ class Renderer:
     def update(self, dt):
         self.t += dt
 
-    def get_pt(self, x):
-        base_pt = self.pts[x % len(self.pts)]
-        vel = self.vels[x % len(self.vels)]
+    def get_point(self, n1, n2):
+        base_pt = self.pts[n1 % len(self.pts)] + self.pts[n2 % len(self.pts)]
+        vel = self.vels[n2 % len(self.vels)] + self.vels[n1 % len(self.vels)]
         pt = base_pt + vel * self.t
         x = int(pt.x) % self.screen.get_width()
         y = int(pt.y) % self.screen.get_height()
@@ -162,46 +184,46 @@ class Renderer:
     def render(self, bg_color=(0, 0, 0)):
         self.screen.fill(bg_color)
         for ent in self.entities:
-            # extract entity info from tuple
             ent_type = self.ent_types[ent[0] % len(self.ent_types)]
-            p1 = self.get_pt(ent[1])
-            p2 = self.get_pt(ent[2])
+            p1 = self.get_point(ent[0], ent[1])
+            p2 = self.get_point(ent[0], ent[2])
             color_idx = ent[3]
 
-            self.render_methods[ent_type](p1, p2, color_idx)  # hack activated
+            self.render_methods[ent_type](p1, p2, color_idx)  # do actual rendering
 
     def render_SURF_RGB(self, p1, p2, color_idx):
         surf = self.rgb_surfs[color_idx % len(self.rgb_surfs)]
-        self.screen.blit(surf, p1)
+        self.screen.blit(surf, (p1[0] - ENT_SIZE // 2, p1[1] - ENT_SIZE // 2))
 
     def render_SURF_RGBA(self, p1, p2, color_idx):
         surf = self.rgba_surfs[color_idx % len(self.rgba_surfs)]
-        self.screen.blit(surf, p1)
+        self.screen.blit(surf, (p1[0] - ENT_SIZE // 2, p1[1] - ENT_SIZE // 2))
 
     def render_SURF_RGB_WITH_ALPHA(self, p1, p2, color_idx):
         surf = self.rgb_surfs_with_alpha[color_idx % len(self.rgb_surfs_with_alpha)]
-        self.screen.blit(surf, p1)
+        self.screen.blit(surf, (p1[0] - ENT_SIZE // 2, p1[1] - ENT_SIZE // 2))
 
     def render_LINE(self, p1, p2, color_idx):
         c = self.colors[color_idx % len(self.colors)]
-        pygame.draw.line(screen, c, p1, p2, width=LINE_THICKNESS)
+        pygame.draw.line(self.screen, c, p1, p2, width=LINE_WIDTH)
 
     def render_RECT_HOLLOW(self, p1, p2, color_idx):
         c = self.colors[color_idx % len(self.colors)]
-        pygame.draw.rect(screen, c, (p1[0], p1[1], p2[0] - p1[0], p2[1] - p1[1]), width=HOLLOW_RECT_THICKNESS)
+        pygame.draw.rect(self.screen, c, (p1[0], p1[1], p2[0] - p1[0], p2[1] - p1[1]),
+                         width=HOLLOW_RECT_WIDTH)
 
     def render_RECT_FILLED(self, p1, p2, color_idx):
         c = self.colors[color_idx % len(self.colors)]
-        pygame.draw.rect(screen, c, (p1[0], p1[1], ENT_SIZE, ENT_SIZE))
+        pygame.draw.rect(self.screen, c, (p1[0]  - ENT_SIZE // 2, p1[1] - ENT_SIZE // 2, ENT_SIZE, ENT_SIZE))
 
     def render_CIRCLE_HOLLOW(self, p1, p2, color_idx):
         c = self.colors[color_idx % len(self.colors)]
         r = (abs(p2[0] - p1[0]) + abs(p2[1] - p1[0])) * HOLLOW_CIRCLE_RADIUS_MULT
-        pygame.draw.circle(screen, c, p1, r, width=HOLLOW_CIRCLE_THICKNESS)
+        pygame.draw.circle(self.screen, c, p1, r, width=HOLLOW_CIRCLE_WIDTH)
 
     def render_CIRCLE_FILLED(self, p1, p2, color_idx):
         c = self.colors[color_idx % len(self.colors)]
-        pygame.draw.circle(screen, c, p1, FILLED_CIRCLE_RADIUS)
+        pygame.draw.circle(self.screen, c, p1, FILLED_CIRCLE_RADIUS)
 
 
 def start_plot(title, subtitle=None):
@@ -212,15 +234,10 @@ def start_plot(title, subtitle=None):
         plt.title(title)
     plt.xlabel('Entities')
     plt.ylabel('FPS')
-    plt.yscale('log')
+    if LOG_AXIS:
+        plt.yscale('log')
     yticks = [15, 30, 45, 60, 120, 144, 240]
     plt.yticks(yticks, [str(yt) for yt in yticks])
-
-
-def finish_plot():
-    plt.legend()
-    plt.get_current_fig_manager().set_window_title('Benchmark Results')
-    plt.show()
 
 
 def get_x_and_y(data, smooth_radius=0):
@@ -263,6 +280,12 @@ def add_to_plot(data, label, show_t60=False, smooth_radius=0):
     plt.plot(x, y, label=label, linestyle=linestyle, linewidth=linewidth)
 
 
+def finish_plot():
+    plt.legend()
+    plt.get_current_fig_manager().set_window_title('Benchmark Results')
+    plt.show()
+
+
 def solve_for_t(x, y, target_y, or_else=None):
     res = None
     for i in range(0, len(x) - 1):
@@ -297,7 +320,7 @@ def smooth_data(x, y, box_radius):
 
 class TestCase:
 
-    def __init__(self, name, caption_title, screen, ent_types=tuple(e for e in EntityType), seed=271828):
+    def __init__(self, name, caption_title, screen, ent_types=tuple(e for e in EntityType), seed=RAND_SEED):
         self.name = name
         self.caption_title = caption_title
         self.screen = screen
@@ -355,21 +378,42 @@ class TestCase:
 def _print_result(case_num, test, res, fps_to_display=(144, 120, 60, STOP_AT_FPS)):
     print(f"\n{case_num}. {test.name} Results:")
     x, y = get_x_and_y(res, smooth_radius=GRAPH_SMOOTHING_RADIUS * SPAWN_RATE)
-    for fps in reversed(sorted(set(fps_to_display))):
-        t = solve_for_t(x, y, fps, or_else=float('NaN'))
-        print(f"  {fps:>3} FPS: {int(t):>4} entities")
+    for fps in reversed(sorted(f for f in set(fps_to_display) if f >= STOP_AT_FPS)):
+        t = solve_for_t(x, y, fps, or_else=0)
+        print(f"  {fps:>3} FPS: {round(t):>4} entities")
 
 
-if __name__ == "__main__":
+def _build_test_cases(screen):
+    ents_to_test = []
+    if INCLUDE_SURFACES:
+        ents_to_test.extend([EntityType.SURF_RGB, EntityType.SURF_RGBA, EntityType.SURF_RGB_WITH_ALPHA])
+    if INCLUDE_FILLED_SHAPES:
+        ents_to_test.extend([EntityType.RECT_FILLED, EntityType.CIRCLE_FILLED])
+    if INCLUDE_LINES:
+        ents_to_test.append(EntityType.LINE)
+    if INCLUDE_HOLLOW_SHAPES:
+        ents_to_test.extend([EntityType.RECT_HOLLOW, EntityType.CIRCLE_HOLLOW])
+
+    test_cases = []
+    if len(ents_to_test) == 0:
+        raise ValueError("Nothing to test, all cases are disabled.")
+    elif len(ents_to_test) == 1:
+        e = ents_to_test[0]
+        test_cases.append(TestCase(e.name, f"{e.name} (#, CASE=1/1)", screen, (e,)))
+    else:
+        n_cases = 1 + len(ents_to_test)
+        test_cases = [TestCase("ALL", f"ALL (#, CASE=1/{n_cases})", screen, ents_to_test)]
+        for e in ents_to_test:
+            test_cases.append(TestCase(e.name, f"{e.name} (#, CASE={2 + int(e)}/{n_cases})", screen, (e,)))
+    return test_cases
+
+
+def _run():
     pygame.init()
     screen = pygame.display.set_mode(SCREEN_SIZE)
 
     _print_info()
-
-    n_cases = 1 + len(EntityType)
-    test_cases = [TestCase("ALL", f"ALL (#, CASE=1/{n_cases})",  screen)]
-    for e in EntityType:
-        test_cases.append(TestCase(e.name, f"{e.name} (#, CASE={2 + int(e)}/{n_cases})", screen, (e,)))
+    test_cases = _build_test_cases(screen)
 
     all_results = {}
     try:
@@ -379,14 +423,15 @@ if __name__ == "__main__":
             _print_result(test_cases.index(test) + 1, test, res)
     except ValueError as err:
         if str(err) == "Quit":
-            print("\nWARN: Benchmark was cancelled before completion")
-            pass  # show partial results even if you quit
+            msg = "no results to show" if len(all_results) == 0 else "showing partial results"
+            print(f"\nBenchmark was cancelled before completion ({msg})")
+            pass  # show partial results (if possible) when you quit
         else:
             raise err
 
     pygame.display.quit()
 
-    # display the plots
+    # display the plot
     if len(all_results) > 0:
         print("\nDisplaying plot...")
         pg_ver = pygame.version.ver
@@ -398,3 +443,42 @@ if __name__ == "__main__":
             add_to_plot(all_results[test_name], test_name, show_t60=(test_name == "ALL"),
                         smooth_radius=GRAPH_SMOOTHING_RADIUS * SPAWN_RATE)
         finish_plot()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='A benchmarking program for pygame rendering.')
+    parser.add_argument('--size', type=int, metavar="int", default=SCREEN_SIZE, nargs=2, help=f'the window size (default {SCREEN_SIZE[0]} {SCREEN_SIZE[1]})')
+    parser.add_argument('--entity-size', type=int, metavar="int", default=ENT_SIZE, help=f'the size of entities in both dimensions (default {ENT_SIZE} px)')
+
+    parser.add_argument('--skip-surfaces', dest='surfaces', action='store_false', default=True, help=f'if used, will skip tests for RGB, RGBA, and RGB (with alpha) surfaces')
+    parser.add_argument('--skip-filled', dest='filled', action='store_false', default=True, help=f'if used, will skip tests for pygame.draw.rect and circle with width = 0')
+    parser.add_argument('--skip-hollow', dest='hollow', action='store_false', default=True, help=f'if used, will skip tests for pygame.draw.rect and circle with width > 0')
+    parser.add_argument('--skip-lines', dest='lines', action='store_false', default=True, help=f'if used, will skip tests for pygame.draw.line')
+
+    parser.add_argument('--spawn-rate', type=int, metavar="int", default=SPAWN_RATE, help=f'number of entities to spawn per second (default {SPAWN_RATE}, smaller = slower and more accurate)')
+    parser.add_argument('--tick-rate', type=float, metavar="float", default=TICK_RATE, help=f'how frequently to sample the FPS and add new entities (in seconds, default {TICK_RATE})')
+    parser.add_argument('--fps-thresh', type=int, metavar="int", default=STOP_AT_FPS, help=f'the FPS at which a test case should stop (default {STOP_AT_FPS})')
+
+    parser.add_argument('--smooth', type=float, metavar="float", default=GRAPH_SMOOTHING_RADIUS, help=f'how much to smooth the graph, in seconds (default {GRAPH_SMOOTHING_RADIUS}, or use 0 for none)')
+    parser.add_argument('--no-log-axis', dest='log_axis', action='store_false', default=LOG_AXIS, help=f'if used, will disable log-scaling on the graph\'s y-axis')
+
+    parser.add_argument('--seed', type=int, metavar="int", default=RAND_SEED, help=f'random seed (default={RAND_SEED}, use 0 to generate one)')
+
+    args = parser.parse_args()
+
+    SCREEN_SIZE = args.size
+    ENT_SIZE = args.entity_size
+
+    INCLUDE_SURFACES = args.surfaces
+    INCLUDE_FILLED_SHAPES = args.filled
+    INCLUDE_HOLLOW_SHAPES = args.hollow
+    INCLUDE_LINES = args.lines
+
+    SPAWN_RATE = args.spawn_rate
+    TICK_RATE = args.tick_rate
+    STOP_AT_FPS = args.fps_thresh
+    GRAPH_SMOOTHING_RADIUS = args.smooth
+    LOG_AXIS = args.log_axis
+    RAND_SEED = args.seed if args.seed > 0 else None
+
+    _run()
