@@ -1,5 +1,9 @@
 import pygame
+import itertools
 import kivy.gesture
+
+
+MAX_STROKES = 3
 
 
 class InProgressGesture:
@@ -39,10 +43,10 @@ class InProgressGesture:
             self.complete_paths.append(self.active_path)
         self.active_path = None
 
-    def build(self, name) -> 'SavedGesture':
+    def build(self, name, all_perms=True) -> 'SavedGesture':
         if self.is_active():
             self.end_path()
-        return SavedGesture(name, self.complete_paths)
+        return SavedGesture(name, self.complete_paths, all_perms=all_perms)
 
     def _draw_path(self, path, screen, color, width, offset=(0, 0)):
         for idx in range(len(path) - 1):
@@ -59,21 +63,37 @@ class InProgressGesture:
 
 class SavedGesture:
 
-    def __init__(self, name, paths, norm_rect=(0.0, 0.0, 1.0, 1.0)):
+    def __init__(self, name, paths, norm_rect=(0.0, 0.0, 1.0, 1.0), all_perms=True):
         self.name = name
         self.norm_rect = norm_rect
-        self.paths = SavedGesture._normalize(paths, norm_rect=self.norm_rect)
 
-        self.kivy_gesture = kivy.gesture.Gesture()
-        for path in paths:
-            self.kivy_gesture.add_stroke(path)
-        self.kivy_gesture.normalize()
+        self.paths = SavedGesture._normalize(paths, norm_rect=self.norm_rect)
+        reversed_paths = [list(reversed(p)) for p in self.paths]
+        n_paths = len(self.paths)
+
+        self.kivy_gestures = []
+        for path_order in itertools.permutations(list(range(n_paths))):
+            for perm in range(2 ** n_paths):
+                gest = kivy.gesture.Gesture()
+                for i in range(n_paths):
+                    rev = 0 if perm % 2 == 0 else 1
+                    perm //= 2
+                    gest.add_stroke(reversed_paths[path_order[i]] if rev else self.paths[path_order[i]])
+                gest.normalize()
+                self.kivy_gestures.append(gest)
+                if not all_perms:
+                    break
+            if not all_perms:
+                break
 
     def __repr__(self):
         return self.name
 
+    def get_gesture(self):
+        return self.kivy_gestures[0]
+
     def get_score(self, other: 'SavedGesture'):
-        return self.kivy_gesture.get_score(other.kivy_gesture)
+        return max(map(lambda g: g.get_score(other.get_gesture()), self.kivy_gestures), default=-1)
 
     def draw(self, surf, rect, color, width=3):
         for path in self.paths:
@@ -140,6 +160,7 @@ def start():
 
     font = pygame.font.Font(pygame.font.get_default_font(), 16)
 
+    print(f"Max Strokes: {MAX_STROKES}")
     print("Controls:\n"
           "  [Mouse] to draw\n"
           "  [Enter] to save gesture\n"
@@ -153,6 +174,9 @@ def start():
                 running = False
             elif e.type == pygame.MOUSEBUTTONDOWN:
                 if e.button == 1:
+                    while len(gesture.complete_paths) >= MAX_STROKES > 0:
+                        print(f"Too many strokes, deleting first one (limit={MAX_STROKES})")
+                        gesture.complete_paths.pop(0)
                     gesture.start_path(e.pos)
             elif e.type == pygame.MOUSEBUTTONUP:
                 if e.button == 1 and gesture.is_active():
@@ -175,7 +199,7 @@ def start():
 
         screen.fill((255, 255, 255))
 
-        temp_saved_gesture = gesture.build("temp") if (not gesture.is_active() and not gesture.is_empty()) else None
+        temp_saved_gesture = gesture.build("temp", all_perms=False) if (not gesture.is_active() and not gesture.is_empty()) else None
 
         bad_color = (255, 128, 128)
         good_color = (128, 255, 128)
