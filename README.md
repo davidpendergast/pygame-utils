@@ -74,6 +74,16 @@ message = steganography.load_text_from_image_file("path/to/file.png")
 print(message)  # prints "secret message"
 ```
 
+# gifreader ([gifreader.py](gifreader.py))
+A utility function that loads a gif file's images and metadata. 
+
+Metadata includes things like frame durations and image dimensions. See documentation on the function for usage instructions.
+
+Requires `imageio` (`pip install imageio`) and `numpy`
+
+### Example of loading and displaying a GIF
+![gifreader_demo.gif](screenshots/gifreader_demo.gif?raw=true "gifreader_demo")
+
 # benchmark ([benchmark.py](benchmark.py))
 A program that benchmarks pygame's rendering and displays the results in a graph.
 
