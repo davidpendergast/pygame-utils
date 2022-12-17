@@ -47,7 +47,7 @@ if __name__ == "__main__":
 
     pygame.init()
     pygame.display.set_mode((640, 480), pygame.RESIZABLE)
-    pygame.display.set_caption("GIF Viewer")
+    pygame.display.set_caption("gifreader.py")
 
     frames, metadata = load_gif(FILE)
     frm_duration = max(metadata['duration'], 1)
