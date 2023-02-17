@@ -33,7 +33,9 @@ A function that applies a "rainbow effect" to a single surface.
 
 After installing dependencies, run with `python rainbowize.py` to see a demo. 
 
-Or import it into your own project and call `rainbowize.apply(my_surface, i)`.
+Or import it into your own project and call `rainbowize.apply_rainbow(my_surface)`.
+
+This program also demonstrates how to set up a `pygame.SCALED` display with a custom initial scaling factor and outer fill color (see function `make_fancy_scaled_display`).
 
 # lut ([lut.py](lut.py))
 A function that transforms the colors of a surface using a lookup table (aka a "LUT").
