@@ -68,6 +68,10 @@ def make_fancy_scaled_display(
     res = pygame.display.set_mode(size, pygame.SCALED | extra_flags | pygame.HIDDEN)
     window = sdl2.Window.from_display_module()
 
+    # due to a bug, we *cannot* let this Window object get GC'd
+    # https://github.com/pygame-community/pygame-ce/issues/1889
+    globals()["sdl2_Window_ref"] = window  # so store it somewhere safe...
+
     # resize the window to achieve the desired scale factor
     if scale_factor > 0:
         initial_scale_factor = max(scale_factor, 1)  # scale must be >= 1
