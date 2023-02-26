@@ -1,72 +1,96 @@
+import typing
+
 import pygame
 import numpy
 import cv2
 
 
-def bounding_box(pts):
-    min_x = float('inf')
-    max_x = -float('inf')
-    min_y = float('inf')
-    max_y = -float('inf')
-    for p in pts:
-        min_x = min(min_x, p[0])
-        min_y = min(min_y, p[1])
-        max_x = max(max_x, p[0])
-        max_y = max(max_y, p[1])
-    return pygame.Rect(min_x, min_y, max_x - min_x, max_y - min_y)
+def warp(surf: pygame.Surface,
+         warp_pts,
+         smooth=True,
+         out: pygame.Surface = None) -> typing.Tuple[pygame.Surface, pygame.Rect]:
+    """Stretches a pygame surface to fill a quad using cv2's perspective warp.
 
+        Args:
+            surf: The surface to transform.
+            warp_pts: A list of four xy coordinates representing the polygon to fill.
+                Points should be specified in clockwise order starting from the top left.
+            smooth: Whether to use linear interpolation for the image transformation.
+                If false, nearest neighbor will be used.
+            out: An optional surface to use for the final output. If None or not
+                the correct size, a new surface will be made instead.
 
-def warp(surf: pygame.Surface, corners):
+        Returns:
+            [0]: A Surface containing the warped image.
+            [1]: A Rect describing where to blit the output surface to make its coordinates
+                match the input coordinates.
+    """
+    if len(warp_pts) != 4:
+        raise ValueError("warp_pts must contain four points")
+
     w, h = surf.get_size()
-    src_corners = numpy.float32([(0, 0), (0, h), (w, h), (w, 0)])
+    is_alpha = surf.get_flags() & pygame.SRCALPHA
 
-    corners = [tuple(reversed(c)) for c in corners]  # no idea why this is necessary...
+    # XXX throughout this method we need to swap x and y coordinates
+    # when we pass stuff between pygame and cv2. I'm not sure why .-.
+    src_corners = numpy.float32([(0, 0), (0, w), (h, w), (h, 0)])
+    quad = [tuple(reversed(p)) for p in warp_pts]
 
-    dest_rect = bounding_box(corners)
-    corners = [(c[0] - dest_rect.x, c[1] - dest_rect.y) for c in corners]
+    min_x, max_x = float('inf'), -float('inf')
+    min_y, max_y = float('inf'), -float('inf')
+    for p in quad:
+        min_x, max_x = min(min_x, p[0]), max(max_x, p[0])
+        min_y, max_y = min(min_y, p[1]), max(max_y, p[1])
+    dest_rect = pygame.Rect(min_x, min_y, max_x - min_x, max_y - min_y)
 
-    dst_corners = numpy.float32(corners)
+    shifted_quad = [(p[0] - min_x, p[1] - min_y) for p in quad]
+    dst_corners = numpy.float32(shifted_quad)
+
     mat = cv2.getPerspectiveTransform(src_corners, dst_corners)
 
-    buf = pygame.surfarray.array3d(surf)
-    buf2 = pygame.surfarray.array_alpha(surf)
+    buf_rgb = pygame.surfarray.array3d(surf)
 
-    out = cv2.warpPerspective(buf, mat, dest_rect.size)
-    out_alpha = cv2.warpPerspective(buf2, mat, dest_rect.size)
+    flags = cv2.INTER_LINEAR if smooth else cv2.INTER_NEAREST
+    out_rgb = cv2.warpPerspective(buf_rgb, mat, dest_rect.size, flags=flags)
 
-    res = pygame.Surface(out.shape[0:2], pygame.SRCALPHA)
-    pygame.surfarray.blit_array(res, out)
+    if out is None or out.get_size() != out_rgb.shape[0:2]:
+        out = pygame.Surface(out_rgb.shape[0:2], pygame.SRCALPHA if is_alpha else 0)
 
-    alpha_px = pygame.surfarray.pixels_alpha(res)
-    alpha_px[:] = out_alpha
+    pygame.surfarray.blit_array(out, out_rgb)
 
-    return res, pygame.Rect(dest_rect.y, dest_rect.x, dest_rect.h, dest_rect.w)
+    if is_alpha:
+        buf_alpha = pygame.surfarray.array_alpha(surf)
+        out_alpha = cv2.warpPerspective(buf_alpha, mat, dest_rect.size, flags=flags)
+        alpha_px = pygame.surfarray.pixels_alpha(out)
+        alpha_px[:] = out_alpha
+    else:
+        out.set_colorkey(surf.get_colorkey())
+
+    # XXX swap x and y once again...
+    return out, pygame.Rect(dest_rect.y, dest_rect.x, dest_rect.h, dest_rect.w)
 
 
 if __name__ == "__main__":
     pygame.init()
 
-    bg_color = pygame.Color(92, 64, 92)
-    outer_bg_color = bg_color.lerp("black", 0.25)
-
     screen = pygame.display.set_mode((640, 480))
-
     pygame.display.set_caption("warp.py")
 
     frog_img = pygame.image.load("data/frog.png").convert_alpha()
-    frog_img = pygame.transform.scale(frog_img, (frog_img.get_width() * 3,
-                                                 frog_img.get_height() * 3))
-
+    frog_img = pygame.transform.scale(frog_img, (frog_img.get_width() * 5,
+                                                 frog_img.get_height() * 5))
     default_rect = frog_img.get_rect(center=screen.get_rect().center)
+    warped_frog_img = None
 
     corners = [default_rect.topleft, default_rect.topright,
                default_rect.bottomright, default_rect.bottomleft]
-
     held_corner_idx = -1
 
-    clock = pygame.time.Clock()
-
+    automatic_demo_mode = True
     t = 0
+
+    clock = pygame.time.Clock()
+    font = pygame.font.SysFont("", 24)
 
     while True:
         for e in pygame.event.get():
@@ -75,38 +99,78 @@ if __name__ == "__main__":
             elif e.type == pygame.KEYDOWN:
                 if e.key == pygame.K_ESCAPE:
                     raise SystemExit()
+                elif e.key == pygame.K_RETURN:
+                    # [Enter] = toggle demo mode
+                    automatic_demo_mode = not automatic_demo_mode
+                elif e.key == pygame.K_r:
+                    # [R] = reset corners
+                    corners = [default_rect.topleft, default_rect.topright,
+                               default_rect.bottomright, default_rect.bottomleft]
             elif e.type == pygame.MOUSEBUTTONDOWN:
                 if e.button == 1:
+                    # [LMB] = move a corner to a new position and start dragging it
+                    automatic_demo_mode = False  # enter manual mode
+
+                    # find the point closest to the click
                     epos_vector = pygame.Vector2(e.pos)
-                    best_idx = 0
+                    best_idx, best_dist = 0, float('inf')
                     for idx, c in enumerate(corners):
-                        if epos_vector.distance_to(c) < epos_vector.distance_to(corners[best_idx]):
+                        c_dist = epos_vector.distance_to(c)
+                        if c_dist < best_dist:
                             best_idx = idx
-                    held_corner_idx = best_idx
-                    corners[best_idx] = e.pos
+                            best_dist = c_dist
+                    held_corner_idx = best_idx  # indicate we're dragging that point
+                    corners[best_idx] = e.pos   # move the point to the click location
             elif e.type == pygame.MOUSEBUTTONUP:
                 if e.button == 1:
-                    held_corner_idx = -1
+                    held_corner_idx = -1  # release the point we're dragging
 
-        screen.fill(bg_color)
+        keys = pygame.key.get_pressed()
 
+        # move the 'held point' to the mouse's location
         mouse_pos = pygame.mouse.get_pos()
         if mouse_pos is not None and held_corner_idx >= 0:
             corners[held_corner_idx] = mouse_pos
 
-        # draw guidelines (red)
-        pygame.draw.line(screen, (255, 0, 0), corners[0], corners[2])
-        pygame.draw.line(screen, (255, 0, 0), corners[1], corners[3])
-        for i in range(len(corners)):
-            pygame.draw.line(screen, (255, 0, 0), corners[i], corners[(i + 1) % len(corners)])
+        # make the points oscillate in circles if we're in 'demo mode'
+        if automatic_demo_mode:
+            perturbs = [pygame.Vector2() for _ in range(4)]
+            for idx, pert in enumerate(perturbs):
+                pert.from_polar(((idx + 1) * 15, (5 - idx) * 30 * t))  # circular motion
+            pts_to_use = [pert + pygame.Vector2(c) for c, pert in zip(corners, perturbs)]
+        else:
+            pts_to_use = corners
 
-        # draw actual warped image
-        warped_frog_img, warped_pos = warp(frog_img, corners)
+        screen.fill((40, 45, 50))
+
+        # generate the warped image
+        warped_frog_img, warped_pos = warp(
+            frog_img,
+            pts_to_use,
+            smooth=not keys[pygame.K_SPACE],  # toggle smoothing while [Space] is held
+            out=warped_frog_img)
+
+        # draw green border around the warped image
+        pygame.draw.rect(
+            screen, "limegreen",
+            warped_frog_img.get_rect(topleft=warped_pos.topleft), width=1)
+        border_text = font.render(f"pos=({warped_pos.x}, {warped_pos.y})", True, "lime")
+        screen.blit(border_text, (warped_pos.x, warped_pos.y - border_text.get_height() - 2))
+
+        # draw red warp guidelines
+        pygame.draw.line(screen, "red2", pts_to_use[0], pts_to_use[2], width=1)
+        pygame.draw.line(screen, "red2", pts_to_use[1], pts_to_use[3], width=1)
+        for i in range(len(pts_to_use)):
+            pygame.draw.line(screen, "red2", pts_to_use[i], pts_to_use[(i + 1) % 4], width=2)
+
+        # draw labels on warp points
+        for i, pt in enumerate(pts_to_use):
+            text_img = font.render(f"p{i}=({int(pt[0])}, {int(pt[1])})", True, "red")
+            scr_pos = (pt[0] + 2, pt[1]) if i in (1, 2) else (pt[0] - text_img.get_width() - 2, pt[1])
+            screen.blit(text_img, scr_pos)
+
+        # blit actual warped image
         screen.blit(warped_frog_img, warped_pos)
 
-        # draw warped image border (green)
-        pygame.draw.rect(screen, (0, 255, 0), warped_frog_img.get_rect(topleft=warped_pos.topleft), width=1)
-
         pygame.display.flip()
-        clock.tick(60)
-        t += 1
+        t += clock.tick(60) / 1000.0

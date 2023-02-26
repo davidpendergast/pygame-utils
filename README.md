@@ -37,6 +37,13 @@ Or import it into your own project and call `rainbowize.apply_rainbow(my_surface
 
 This program also demonstrates how to set up a `pygame.SCALED` display with a custom initial scaling factor and outer fill color (see function `make_fancy_scaled_display`).
 
+# warp ([warp.py](warp.py))
+A function that stretches a surface into an arbitrary quad using cv2's perspective warp.
+
+![warp.gif](screenshots/warp.gif?raw=true "Warp Demo")
+
+After installing dependencies (`numpy`, `cv2`), run with `python warp.py` to see a demo.
+
 # lut ([lut.py](lut.py))
 A function that transforms the colors of a surface using a lookup table (aka a "LUT").
 
