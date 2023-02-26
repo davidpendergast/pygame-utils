@@ -36,22 +36,26 @@ def warp(surf: pygame.Surface,
     src_corners = numpy.float32([(0, 0), (0, w), (h, w), (h, 0)])
     quad = [tuple(reversed(p)) for p in warp_pts]
 
+    # find the bounding box of warp points
+    # (this gives the size and position of the final output surface).
     min_x, max_x = float('inf'), -float('inf')
     min_y, max_y = float('inf'), -float('inf')
     for p in quad:
         min_x, max_x = min(min_x, p[0]), max(max_x, p[0])
         min_y, max_y = min(min_y, p[1]), max(max_y, p[1])
-    dest_rect = pygame.Rect(min_x, min_y, max_x - min_x, max_y - min_y)
+    warp_bounding_box = pygame.Rect(int(min_x), int(min_y),
+                                    int(max_x - min_x),
+                                    int(max_y - min_y))
 
     shifted_quad = [(p[0] - min_x, p[1] - min_y) for p in quad]
     dst_corners = numpy.float32(shifted_quad)
 
     mat = cv2.getPerspectiveTransform(src_corners, dst_corners)
 
-    buf_rgb = pygame.surfarray.array3d(surf)
+    orig_rgb = pygame.surfarray.pixels3d(surf)
 
     flags = cv2.INTER_LINEAR if smooth else cv2.INTER_NEAREST
-    out_rgb = cv2.warpPerspective(buf_rgb, mat, dest_rect.size, flags=flags)
+    out_rgb = cv2.warpPerspective(orig_rgb, mat, warp_bounding_box.size, flags=flags)
 
     if out is None or out.get_size() != out_rgb.shape[0:2]:
         out = pygame.Surface(out_rgb.shape[0:2], pygame.SRCALPHA if is_alpha else 0)
@@ -59,15 +63,16 @@ def warp(surf: pygame.Surface,
     pygame.surfarray.blit_array(out, out_rgb)
 
     if is_alpha:
-        buf_alpha = pygame.surfarray.array_alpha(surf)
-        out_alpha = cv2.warpPerspective(buf_alpha, mat, dest_rect.size, flags=flags)
+        orig_alpha = pygame.surfarray.pixels_alpha(surf)
+        out_alpha = cv2.warpPerspective(orig_alpha, mat, warp_bounding_box.size, flags=flags)
         alpha_px = pygame.surfarray.pixels_alpha(out)
         alpha_px[:] = out_alpha
     else:
         out.set_colorkey(surf.get_colorkey())
 
     # XXX swap x and y once again...
-    return out, pygame.Rect(dest_rect.y, dest_rect.x, dest_rect.h, dest_rect.w)
+    return out, pygame.Rect(warp_bounding_box.y, warp_bounding_box.x,
+                            warp_bounding_box.h, warp_bounding_box.w)
 
 
 if __name__ == "__main__":
