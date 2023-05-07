@@ -1,3 +1,4 @@
+import asyncio
 import pygame
 import numpy
 
@@ -32,7 +33,8 @@ class State:
         pygame.surfarray.blit_array(screen, self.grid)
 
 
-if __name__ == "__main__":
+async def main():
+    global W, H, FPS, FLAGS
     pygame.init()
     screen = pygame.display.set_mode((W, H), flags=FLAGS)
     state = State()
@@ -67,3 +69,8 @@ if __name__ == "__main__":
 
         last_update_time = current_time
         clock.tick(FPS)
+        await asyncio.sleep(0)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

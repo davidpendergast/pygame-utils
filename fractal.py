@@ -1,4 +1,4 @@
-
+import asyncio
 import pygame
 import numpy
 
@@ -132,7 +132,8 @@ def hues_to_rgb(h, out):
     out[:] = r * 0x010000 + g * 0x000100 + b * 0x000001
 
 
-if __name__ == "__main__":
+async def main():
+    global W, H, FPS, TOTAL_ITERATIONS_PER_FRAME, MAX_ITERS_PER_CELL_PER_FRAME, SHOW_BOX, SIMPLE_COLORING, FLAGS, ABS_LIMIT
     pygame.init()
     screen = pygame.display.set_mode((W, H), flags=FLAGS)
     state = State()
@@ -187,3 +188,8 @@ if __name__ == "__main__":
 
         last_update_time = current_time
         clock.tick(FPS)
+        await asyncio.sleep(0)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

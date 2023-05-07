@@ -1,5 +1,7 @@
 import pygame
 import numpy
+import asyncio
+
 
 # Conway's Game of Life (using pygame + numpy)
 # by Ghast
@@ -38,7 +40,8 @@ class State:
     def draw(self, screen, color=0xFFFFFF):
         pygame.surfarray.blit_array(screen, self.grid * color)
 
-if __name__ == "__main__":
+async def main():
+    global FPS, W, H, RATIO, FLAGS
     pygame.init()
     screen = pygame.display.set_mode((W, H), flags=FLAGS)
     state = State()
@@ -73,3 +76,7 @@ if __name__ == "__main__":
 
         last_update_time = current_time
         clock.tick(FPS)
+        await asyncio.sleep(0)
+
+if __name__ == "__main__":
+    asyncio.run( main() )
