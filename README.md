@@ -55,6 +55,13 @@ Or import it into your own project and call `lut.apply_lut(source_surface, lut_s
 
 If `numpy` isn't available, the function will fall back to a pure pygame routine (which is slower but produces the same result). The function also has an optional built-in caching system, and handles per-pixel alpha in a reasonable way.
 
+# worms ([worms.py](worms.py))
+A screensaver effect made with pure pygame that creates an illusion of depth.
+
+![worms.gif](screenshots/worms.gif?raw=true "Infinite Worms Demo")
+
+After installing dependencies, run with `python worms.py`
+
 # video ([video.py](video.py))
 A video playback utility for pygame using numpy and cv2.
 
